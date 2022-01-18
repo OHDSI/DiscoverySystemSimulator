@@ -1,0 +1,16 @@
+Package: DiscoverySystemSimulator
+Title: Simulating Effect discovery in an Active Surveillance System
+Version: 0.0.1
+Authors@R: 
+    person("Martijn", "Schuemie", , "schuemie@ohdsi.org", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-0817-5361"))
+Description: An R package that simulates effect discovery in an active surveillance system
+Imports:
+  rlang,
+  dplyr,
+  Cyclops,
+  purrr
+License: Apache License 2.0
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.2
