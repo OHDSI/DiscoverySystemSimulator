@@ -34,8 +34,8 @@
 #'
 #' @export
 createExposureOutcomeSettings <- function(nTarget = 100,
-                                          nComparator = nTarget * 10,
-                                          backgroundRate = 0.001,
+                                          nComparator = nTarget * 2,
+                                          backgroundRate = 0.0001,
                                           logRrMean = 0,
                                           logRrSd = 0,
                                           riskStart = 0,
@@ -68,7 +68,7 @@ createTimeAtRiskSettings <- function(start = 0,
 #' Create method settings
 #'
 #' @param systematicErrorMean The mean of the systematic error distribution.
-#' @param systematicErrorDSd  The standard deviation (SD) of the systematic error distribution.
+#' @param systematicErrorSd  The standard deviation (SD) of the systematic error distribution.
 #'
 #' @return
 #' A settings object
@@ -83,10 +83,9 @@ createMethodSettings <- function(systematicErrorMean = 0,
   return(settings)
 }
 
-#' Create method settings
+#' Create database settings
 #'
-#' @param systematicErrorMean The mean of the systematic error distribution.
-#' @param systematicErrorDSd  The standard deviation (SD) of the systematic error distribution.
+#' @param sampleSizeMultiplier The relative sample size of the database.
 #'
 #' @return
 #' A settings object

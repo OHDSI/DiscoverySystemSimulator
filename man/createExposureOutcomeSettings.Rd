@@ -6,8 +6,8 @@
 \usage{
 createExposureOutcomeSettings(
   nTarget = 100,
-  nComparator = nTarget * 10,
-  backgroundRate = 0.001,
+  nComparator = nTarget * 2,
+  backgroundRate = 1e-04,
   logRrMean = 0,
   logRrSd = 0,
   riskStart = 0,

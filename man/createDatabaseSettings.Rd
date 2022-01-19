@@ -2,18 +2,16 @@
 % Please edit documentation in R/Settings.R
 \name{createDatabaseSettings}
 \alias{createDatabaseSettings}
-\title{Create method settings}
+\title{Create database settings}
 \usage{
 createDatabaseSettings(sampleSizeMultiplier = 1)
 }
 \arguments{
-\item{systematicErrorMean}{The mean of the systematic error distribution.}
-
-\item{systematicErrorDSd}{The standard deviation (SD) of the systematic error distribution.}
+\item{sampleSizeMultiplier}{The relative sample size of the database.}
 }
 \value{
 A settings object
 }
 \description{
-Create method settings
+Create database settings
 }

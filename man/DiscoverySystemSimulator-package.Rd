@@ -6,7 +6,7 @@
 \alias{DiscoverySystemSimulator-package}
 \title{DiscoverySystemSimulator: Simulating Effect discovery in an Active Surveillance System}
 \description{
-An R package that simulates effect discovery in an active surveillance system
+An R package that simulates effect discovery in an active surveillance system.
 }
 \author{
 \strong{Maintainer}: Martijn Schuemie \email{schuemie@ohdsi.org} (\href{https://orcid.org/0000-0002-0817-5361}{ORCID})

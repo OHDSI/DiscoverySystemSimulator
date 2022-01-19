@@ -4,7 +4,7 @@ Version: 0.0.1
 Authors@R: 
     person("Martijn", "Schuemie", , "schuemie@ohdsi.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-0817-5361"))
-Description: An R package that simulates effect discovery in an active surveillance system
+Description: An R package that simulates effect discovery in an active surveillance system.
 Imports:
   rlang,
   dplyr,

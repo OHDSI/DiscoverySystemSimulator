@@ -9,7 +9,7 @@ createMethodSettings(systematicErrorMean = 0, systematicErrorSd = 0)
 \arguments{
 \item{systematicErrorMean}{The mean of the systematic error distribution.}
 
-\item{systematicErrorDSd}{The standard deviation (SD) of the systematic error distribution.}
+\item{systematicErrorSd}{The standard deviation (SD) of the systematic error distribution.}
 }
 \value{
 A settings object

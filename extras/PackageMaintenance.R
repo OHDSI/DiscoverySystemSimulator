@@ -14,13 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#' @keywords internal
-"_PACKAGE"
+# Format and check code:
+styler::style_pkg()
+OhdsiRTools::checkUsagePackage("DiscoverySystemSimulator")
+OhdsiRTools::updateCopyrightYearFolder()
+OhdsiRTools::findNonAsciiStringsInFolder()
+devtools::spell_check()
 
-#' @importFrom stats coef confint pnorm qnorm rnorm rpois
-#' @importFrom utils head tail
-#' @importFrom rlang .data
-#' @import dplyr
-#' @import purrr
-NULL
-
+# Create manual and vignettes:
+unlink("extras/DiscoverySystemSimulator.pdf")
+shell("R CMD Rd2pdf ./ --output=extras/DiscoverySystemSimulator.pdf")
