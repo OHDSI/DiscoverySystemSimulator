@@ -111,18 +111,26 @@ createDatabaseSettings <- function(sampleSizeMultiplier = 1) {
 #' A settings object
 #'
 #' @export
-createSimulationSettings <- function(exposureOutcomeSettings = c(lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
-                                                                 lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)),
-                                     timeAtRiskSettings = list(createTimeAtRiskSettings(0,7),
-                                                               createTimeAtRiskSettings(0,21),
-                                                               createTimeAtRiskSettings(0,42),
-                                                               createTimeAtRiskSettings(0,90)),
-                                     methodSettings = list(createMethodSettings(0.05, 0.05),
-                                                           createMethodSettings(0.10, 0.10),
-                                                           createMethodSettings(0.20, 0.20)),
-                                     databaseSettings = list(createDatabaseSettings(1.0),
-                                                             createDatabaseSettings(0.5),
-                                                             createDatabaseSettings(2.0)),
+createSimulationSettings <- function(exposureOutcomeSettings = c(
+                                       lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
+                                       lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
+                                     ),
+                                     timeAtRiskSettings = list(
+                                       createTimeAtRiskSettings(0, 7),
+                                       createTimeAtRiskSettings(0, 21),
+                                       createTimeAtRiskSettings(0, 42),
+                                       createTimeAtRiskSettings(0, 90)
+                                     ),
+                                     methodSettings = list(
+                                       createMethodSettings(0.05, 0.05),
+                                       createMethodSettings(0.10, 0.10),
+                                       createMethodSettings(0.20, 0.20)
+                                     ),
+                                     databaseSettings = list(
+                                       createDatabaseSettings(1.0),
+                                       createDatabaseSettings(0.5),
+                                       createDatabaseSettings(2.0)
+                                     ),
                                      looks = 10) {
   settings <- list()
   for (name in names(formals(createSimulationSettings))) {
