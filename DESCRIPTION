@@ -10,7 +10,10 @@ Imports:
   dplyr,
   Cyclops,
   purrr,
-  ParallelLogger
+  tidyr,
+  ggplot2,
+  ParallelLogger,
+  EmpiricalCalibration
 License: Apache License 2.0
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

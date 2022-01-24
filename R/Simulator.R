@@ -44,6 +44,7 @@ simulateDiscoverySystem <- function(simulationSettings = createSimulationSetting
 
   attr(estimates, "trueEffectSizes") <- trueEffectSizes
   attr(estimates, "systematicErrors") <- systematicErrors
+  attr(estimates, "simulationSettings") <- simulationSettings
   return(estimates)
 }
 

@@ -138,3 +138,15 @@ createSimulationSettings <- function(exposureOutcomeSettings = c(
   }
   return(settings)
 }
+
+getNegativeControlIds <- function(simulationSettings) {
+  negativeControlIds <- c()
+  for (i in 1:length(simulationSettings$exposureOutcomeSettings)) {
+    exposureOutcomeSetting <- simulationSettings$exposureOutcomeSettings[[i]]
+    if (exposureOutcomeSetting$logRrMean == 0 &&
+        exposureOutcomeSetting$logRrSd == 0) {
+      negativeControlIds <- c(negativeControlIds, i)
+    }
+  }
+  return(negativeControlIds)
+}
