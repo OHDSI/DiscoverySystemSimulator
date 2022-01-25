@@ -128,12 +128,14 @@ runDiscoverySystemIteration <- function(simulationFile, discoverySystemSettings,
 #' Requires [runSimulationIterations()] to have already been executed.
 #'
 #' @param signalsFolder       The folder containing the signal objects.
+#' @param level              The level at which to compute the confusion matrix. Currently
+#'                           supports "exposure-outcome" and "max-sprt".
 #'
 #' @return
 #' A tibble combining the confusion matrices of all iterations.
 #'
 #' @export
-evaluateIterations <- function(signalsFolder) {
+evaluateIterations <- function(signalsFolder, level = "exposure-outcome") {
   simulationSettings <- readRDS(file.path(signalsFolder, "simulationSettings.rds"))
   signalFiles <- list.files(path = signalsFolder, pattern = "Signals_.*.rds", full.names = TRUE)
 
@@ -141,11 +143,11 @@ evaluateIterations <- function(signalsFolder) {
     iteration <- as.numeric(gsub("^.*_i", "", gsub(".rds", "", signalFile)))
     signals <- readRDS(signalFile)
     matrix <- computeConfusionMatrix(signals = signals,
-                                     simulationSettings = simulationSettings) %>%
+                                     simulationSettings = simulationSettings,
+                                     level = level) %>%
       mutate(iteration = !!iteration) %>%
       return()
   }
-  confusionMatrices <- map_dfr(signalFiles, doEvaluation)
-  saveRDS(confusionMatrices, file.path(signalsFolder, "ConfusionMatrices.rds"))
-  return(confusionMatrices)
+  map_dfr(signalFiles, doEvaluation) %>%
+    return()
 }

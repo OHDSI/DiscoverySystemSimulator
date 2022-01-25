@@ -21,35 +21,32 @@
 #'
 #' @param signals            An object created using [runDiscoverySystem()].
 #' @param simulationSettings An object created using [createSimulationSettings()].
+#' @param level              The level at which to compute the confusion matrix. Currently
+#'                           supports "exposure-outcome" and "across looks".
 #'
 #' @return
 #' A tibble.
 #'
 #' @export
-computeConfusionMatrix <- function(signals, simulationSettings) {
+computeConfusionMatrix <- function(signals, simulationSettings, level = "exposure-outcome") {
   negativeControlIds <- getNegativeControlIds(simulationSettings)
 
-  signalsPerExposureOutcome <- signals %>%
-    group_by(.data$exposureOutcomeId) %>%
+  if (level == "exposure-outcome") {
+    signalsPerExposureOutcome <- signals %>%
+      group_by(.data$exposureOutcomeId)
+  } else if (level == "across looks") {
+    signalsPerExposureOutcome <- signals %>%
+      group_by(.data$exposureOutcomeId, .data$databaseId, .data$methodId, .data$timeAtRiskId)
+  } else {
+    stop(sprintf("Unknown level '%s'. Please select 'exposure-outcome' or 'across looks'", level))
+  }
+
+  signalsPerExposureOutcome <- signalsPerExposureOutcome %>%
     summarise(signalMaxSprt = any(.data$signalMaxSprt),
               signalCalibratedMaxSprt = any(.data$signalCalibratedMaxSprt),
-              signalP = any(.data$signalP)) %>%
+              signalP = any(.data$signalP),
+              .groups = "drop") %>%
     mutate(groundTruth = !.data$exposureOutcomeId %in% negativeControlIds)
-
-  computeMatrix <- function(signal, groundTruth, label) {
-    tp <- sum(signal & groundTruth)
-    fp <- sum(signal & !groundTruth)
-    tn <- sum(!signal & !groundTruth)
-    fn <- sum(!signal & groundTruth)
-    tibble(tp = tp,
-           fp = fp,
-           tn = tn,
-           fn = fn,
-           type1 = fp / (fp + tn),
-           type2 = fn / (tp + fn),
-           label = label) %>%
-      return()
-  }
 
   confusionMatrix <- bind_rows(computeMatrix(signalsPerExposureOutcome$signalCalibratedMaxSprt,
                                              signalsPerExposureOutcome$groundTruth,
@@ -62,6 +59,24 @@ computeConfusionMatrix <- function(signals, simulationSettings) {
                                              "P"))
   return(confusionMatrix)
 }
+
+computeMatrix <- function(signal, groundTruth, label) {
+  tp <- sum(signal & groundTruth)
+  fp <- sum(signal & !groundTruth)
+  tn <- sum(!signal & !groundTruth)
+  fn <- sum(!signal & groundTruth)
+  tibble(tp = tp,
+         fp = fp,
+         tn = tn,
+         fn = fn,
+         type1 = fp / (fp + tn),
+         type2 = fn / (tp + fn),
+         label = label) %>%
+    return()
+}
+
+
+
 
 
 #' Plot distribution of false positives and negatives
