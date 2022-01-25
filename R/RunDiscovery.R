@@ -209,6 +209,7 @@ computeCriticalValuesUsingOracle <- function(simulation, alphaPerMethod) {
         cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
                                                       z = mean(subset$z),
                                                       minimumEvents = 1,
+                                                      sampleSize = 1e7,
                                                       alpha = alpha)
       )
     }
@@ -263,6 +264,7 @@ computeCriticalValuesUsingExpected <- function(simulation, alphaPerMethod) {
         cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
                                                       z = row$z,
                                                       minimumEvents = 1,
+                                                      sampleSize = 1e7,
                                                       alpha = row$alpha)
       )
     }
