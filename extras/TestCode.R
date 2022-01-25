@@ -1,36 +1,33 @@
 library(DiscoverySystemSimulator)
 
-simulationSettings <- createSimulationSettings()
-simulation <- simulateDiscoverySystem(simulationSettings)
 
-outputFolder <- "s:/temp/Simulations"
 maxCores <- 20
 
-ParallelLogger::addDefaultFileLogger(file.path(outputFolder, "discoverySystemLog.txt"))
-ParallelLogger::addDefaultErrorReportLogger(file.path(outputFolder, "errorReport.txt"))
 
-runSimulationIterations(outputFolder = outputFolder,
+simulationSettings <- createSimulationSettings()
+simulationsFolder <- "s:/temp/Simulations"
+runSimulationIterations(simulationsFolder = simulationsFolder,
                         threads = maxCores)
 
-
 discoverySystemSettings <- createDiscoverySystemSettings()
-runDiscoverySystemIterations(outputFolder = outputFolder,
+discoverySystemSettings$alpha <- 0.50
+signalsFolder <- "s:/temp/SignalsAlpha50"
+runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
+                             signalsFolder = signalsFolder,
                              discoverySystemSettings = discoverySystemSettings,
                              threads = maxCores)
 
+evaluateIterations(signalsFolder = signalsFolder)
+confusionMatrices <- readRDS(file.path(signalsFolder, "ConfusionMatrices.rds"))
+plotFalsePositiveNegatives(confusionMatrices,
+                           strategies = c("Calibrated MaxSPRT"),
+                           cumulative = TRUE,
+                           alpha = 0.5,
+                           fileName = file.path(signalsFolder, "fnfpPlot.png"))
 
-
-simulation <- readRDS(file.path(outputFolder, "Simulation_i1.rds"))
-discoverySystemSettings <- createDiscoverySystemSettings()
-
-signals <- runDiscoverySystem(simulation, discoverySystemSettings)
-
-ParallelLogger::unregisterLogger("DEFAULT_FILE_LOGGER")
-ParallelLogger::unregisterLogger("DEFAULT_ERRORREPORT_LOGGER")
-saveRDS(signals, file.path(outputFolder, "Signals_i1.rds"))
-
-
-
-signals <- readRDS(file.path(outputFolder, "Signals_i1.rds"))
-computeConfusionMatrix(signals = signals,
-                       simulationSettings = simulationSettings)
+# simulation <- simulateDiscoverySystem(simulationSettings)
+# simulation <- readRDS(file.path(outputFolder, "Simulation_i1.rds"))
+# signals <- runDiscoverySystem(simulation, discoverySystemSettings)
+# signals <- readRDS(file.path(signalsFolder, "Signals_i1.rds"))
+# computeConfusionMatrix(signals = signals,
+#                        simulationSettings = simulationSettings)

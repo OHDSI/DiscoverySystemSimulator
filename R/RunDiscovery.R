@@ -133,15 +133,22 @@ performCalibratedMaxSprt <- function(simulation, alphaPerMethod, discoverySystem
            .data$lookId,
            .data$signalMaxSprt,
            .data$signalCalibratedMaxSprt,
-           .data$signalP)
+           .data$signalP) %>%
+    dropNonStandardAttributes()
   return(signals)
+}
+
+dropNonStandardAttributes <- function(object) {
+  standard <- names(attributes(tibble()))
+  attributes(object) <- attributes(object)[standard]
+  return(object)
 }
 
 fitSystematicErrorDistributions <- function(simulation) {
   # Using all simulated exposure-outcome pairs with null effect as negative controls:
   negativeControlIds <- getNegativeControlIds(attr(simulation, "simulationSettings"))
 
-  message("Fittingh systematic error distributions")
+  message("Fitting systematic error distributions")
   # subset <- split(simulation, paste(simulation$databaseId, simulation$timeAtRiskId, simulation$methodId, simulation$lookId))[[1]]
   fitDistribution <- function(subset) {
     negativeControls <- subset %>%
