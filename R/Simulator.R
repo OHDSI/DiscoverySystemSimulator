@@ -136,7 +136,7 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
       pull(.data$systematicError)
     # Resample comparator to simulate different choices of counterfactual. Adjusting by systematic error to simulate imperfect counterfactual:
     tibble(
-      methodId = rep(methodId, length(timePerPerson)),
+      methodId = rep(methodId, nrow(timeAtRiskSettings)),
       timeAtRiskId = 1:nrow(timeAtRiskSettings),
       start = timeAtRiskSettings$start,
       end = timeAtRiskSettings$end,
