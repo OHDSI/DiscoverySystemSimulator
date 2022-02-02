@@ -5,14 +5,14 @@
 \title{Run multiple iterations of the same simulation.}
 \usage{
 runSimulationIterations(
-  outputFolder,
+  simulationsFolder,
   simulationSettings = createSimulationSettings(),
   iterations = 100,
   threads = 4
 )
 }
 \arguments{
-\item{outputFolder}{The folder where the simulation objects should be written.}
+\item{simulationsFolder}{The folder where the simulation objects should be written.}
 
 \item{simulationSettings}{An object created using \code{\link[=createSimulationSettings]{createSimulationSettings()}}.}
 

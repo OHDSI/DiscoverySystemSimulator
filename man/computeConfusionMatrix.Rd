@@ -4,12 +4,15 @@
 \alias{computeConfusionMatrix}
 \title{Compute confusion matrix}
 \usage{
-computeConfusionMatrix(signals, simulationSettings)
+computeConfusionMatrix(signals, simulationSettings, level = "exposure-outcome")
 }
 \arguments{
 \item{signals}{An object created using \code{\link[=runDiscoverySystem]{runDiscoverySystem()}}.}
 
 \item{simulationSettings}{An object created using \code{\link[=createSimulationSettings]{createSimulationSettings()}}.}
+
+\item{level}{The level at which to compute the confusion matrix. Currently
+supports "exposure-outcome" and "across looks".}
 }
 \value{
 A tibble.
