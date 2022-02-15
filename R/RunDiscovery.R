@@ -22,13 +22,17 @@
 #' @param alpha           The family-wise type 1 error rate we're aiming for.
 #' @param useOracleForCv  Compute critical values on the actual sample sizes? If FALSE,
 #'                        use expected sample sizes instead.
+#' @param databaseIdsToIgnore  A list of database IDs to ignore (first database has ID 1, second 2, etc.).
+#' @param methodIdsToIgnore  A list of method IDs to ignore (first method has ID 1, method 2, etc.).
 #'
 #' @return
 #' A settings object
 #'
 #' @export
 createDiscoverySystemSettings <- function(alpha = 0.05,
-                                          useOracleForCv = FALSE) {
+                                          useOracleForCv = FALSE,
+                                          databaseIdsToIgnore = c(),
+                                          methodIdsToIgnore = c()) {
   settings <- list()
   for (name in names(formals(createDiscoverySystemSettings))) {
     settings[[name]] <- get(name)
@@ -55,6 +59,18 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
   if (!is.null(cacheFolder) && !dir.exists(cacheFolder)) {
     message(sprintf("Folder '%s' does not exist, so creating it.", cacheFolder))
     dir.create(cacheFolder, recursive = TRUE)
+  }
+  if (length(discoverySystemSettings$databaseIdsToIgnore) > 0) {
+    message(sprintf("Removing database ID(s) %s from the simulation.",
+                    paste(discoverySystemSettings$databaseIdsToIgnore, collapse = ",")))
+    simulation <- simulation %>%
+      filter(!.data$databaseId %in% discoverySystemSettings$databaseIdsToIgnore)
+  }
+  if (length(discoverySystemSettings$methodIdsToIgnore) > 0) {
+    message(sprintf("Removing method ID(s) %s from the simulation.",
+                    paste(discoverySystemSettings$methodIdsToIgnore, collapse = ",")))
+    simulation <- simulation %>%
+      filter(!.data$methodId %in% discoverySystemSettings$methodIdsToIgnore)
   }
 
   # Divide alpha over exposure-outcomes (Bonferroni)

@@ -151,8 +151,8 @@ plotFalsePositiveNegatives <- function(confusionMatrices,
   if (!is.null(fileName)) {
     ggplot2::ggsave(plot = plot,
                     filename = fileName,
-                    width = 8,
-                    height = 2 + length(labels) * 2,
+                    width = 6,
+                    height = 1.25 + length(labels) * 1.25,
                     dpi =  200)
   }
 
