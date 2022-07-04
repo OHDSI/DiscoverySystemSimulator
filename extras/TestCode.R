@@ -11,7 +11,7 @@ runSimulationIterations(simulationsFolder = simulationsFolder,
 
 discoverySystemSettings <- createDiscoverySystemSettings()
 discoverySystemSettings$alpha <- 0.50
-signalsFolder <- "s:/DiscoverSytemSimulations/SignalsAlpha50"
+signalsFolder <- "s:/DiscoverSytemSimulations/SignalsAlpha0.5"
 runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
                              signalsFolder = signalsFolder,
                              discoverySystemSettings = discoverySystemSettings,
@@ -32,14 +32,13 @@ maxSprtAlpha <- alpha /
 maxSprtAlpha * 10000
 # confusionMatrices <- readRDS(file.path(signalsFolder, "ConfusionMatrices.rds"))
 plotFalsePositiveNegatives(confusionMatrices,
-                           strategies = c("Calibrated MaxSPRT"),
                            cumulative = TRUE,
                            alpha = 0.5,
                            fileName = file.path(signalsFolder, "fnfpPlot.png"))
 
 # simulation <- simulateDiscoverySystem(simulationSettings)
 # simulation <- readRDS(file.path(simulationsFolder, "Simulation_i1.rds"))
-# signals <- runDiscoverySystem(simulation, discoverySystemSettings)
+signals <- runDiscoverySystem(simulation, discoverySystemSettings)
 # signals <- readRDS(file.path(signalsFolder, "Signals_i1.rds"))
 # computeConfusionMatrix(signals = signals,
 #                        simulationSettings = simulationSettings)
@@ -60,32 +59,4 @@ doEvaluation <- function(signalFile) {
 }
 confusionMatrices <-map_dfr(signalFiles, doEvaluation)
 
-
-
-x <- c(1, 0)
-y <- c(6, 0)
-logTime <- log(c(16000, 32000))
-
-cyclopsData <- Cyclops::createCyclopsData(y ~ x + offset(logTime), modelType = "pr")
-fit <- Cyclops::fitCyclopsModel(cyclopsData)
-logRr <- coef(fit)["x"]
-ci <- confint(fit, parm = "x")
-llNull <- Cyclops::getCyclopsProfileLogLikelihood(
-  object = fit,
-  parm = "x",
-  x = 0
-)$value
-llr <- fit$log_likelihood - llNull
-
-profile <- Cyclops::getCyclopsProfileLogLikelihood(
-  object = fit,
-  parm = "x",
-  bounds = c(log(0.1), 12)
-)
-plot(profile$point, profile$value)
-cumulativeCount <- 6
-cumulativeObserved <- 6
-p <- 16000 / 32000
-llr = dbinom(cumulativeObserved, cumulativeCount, cumulativeObserved / cumulativeCount, log = TRUE) -
-  dbinom(cumulativeObserved, cumulativeCount, p, log = TRUE)
 

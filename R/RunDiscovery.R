@@ -20,8 +20,6 @@
 #' Create setting for the discovery system
 #'
 #' @param alpha           The family-wise type 1 error rate we're aiming for.
-#' @param useOracleForCv  Compute critical values on the actual sample sizes? If FALSE,
-#'                        use expected sample sizes instead.
 #' @param databaseIdsToIgnore  A list of database IDs to ignore (first database has ID 1, second 2, etc.).
 #' @param methodIdsToIgnore  A list of method IDs to ignore (first method has ID 1, method 2, etc.).
 #'
@@ -30,7 +28,6 @@
 #'
 #' @export
 createDiscoverySystemSettings <- function(alpha = 0.05,
-                                          useOracleForCv = FALSE,
                                           databaseIdsToIgnore = c(),
                                           methodIdsToIgnore = c()) {
   settings <- list()
@@ -118,38 +115,22 @@ performCalibratedMaxSprt <- function(simulation,
                                      alphaPerMethod,
                                      discoverySystemSettings,
                                      cacheFolder) {
-  if (discoverySystemSettings$useOracleForCv) {
-    criticalValues <- computeCriticalValuesUsingOracle(simulation, alphaPerMethod)
-  } else {
-    criticalValues <- computeCriticalValuesUsingExpected(simulation, alphaPerMethod)
-  }
-
   distributions <- fitSystematicErrorDistributions(simulation, cacheFolder)
 
+  criticalValues <- computeCriticalValues(simulation, alphaPerMethod, distributions, cacheFolder)
+
   data <- simulation %>%
-    select(.data$methodId, .data$timeAtRiskId, .data$exposureOutcomeId, .data$databaseId, .data$lookId, .data$p, .data$llr, .data$profileIdx) %>%
-    inner_join(criticalValues, by = c("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId")) %>%
+    select(.data$methodId, .data$timeAtRiskId, .data$exposureOutcomeId, .data$databaseId, .data$lookId, .data$p, .data$llr, .data$logRr, .data$seLogRr, .data$profileIdx) %>%
+    inner_join(criticalValues, by = c("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "lookId")) %>%
     inner_join(distributions, by = c("methodId", "timeAtRiskId", "databaseId", "lookId")) %>%
     inner_join(alphaPerMethod, by = c("timeAtRiskId", "exposureOutcomeId", "databaseId"))
 
   message("Computing signals")
   # row <- split(data, 1:nrow(data))[[1]]
   computeSignals <- function(row) {
-    profile <- attr(simulation, "profiles")[[row$profileIdx]]
-    if (is.null(profile)) {
-      calibratedLlr <- 0
-    } else {
-      null <- c(row$systematicErrorMean, row$systematicErrorSd)
-      names(null) <- c("mean", "sd")
-      class(null) <- "null"
-      suppressMessages(
-        calibratedLlr <- EmpiricalCalibration::calibrateLlr(null = null,
-                                                            likelihoodApproximation = profile)
-      )
-    }
     row %>%
       mutate(signalMaxSprt = .data$llr > .data$cv,
-             signalCalibratedMaxSprt = calibratedLlr > .data$cv,
+             signalCalibratedMaxSprt = .data$llr > .data$calibratedCv,
              signalP = if_else(is.na(.data$p), FALSE, .data$p < row$alpha)) %>%
       return()
   }
@@ -164,7 +145,8 @@ performCalibratedMaxSprt <- function(simulation,
            .data$signalMaxSprt,
            .data$signalCalibratedMaxSprt,
            .data$signalP,
-           .data$cvAlpha) %>%
+           .data$cvAlpha,
+           .data$calibratedCvAlpha) %>%
     dropNonStandardAttributes()
   return(signals)
 }
@@ -221,117 +203,93 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
   return(distributions)
 }
 
-computeCriticalValuesUsingOracle <- function(simulation, alphaPerMethod) {
-  sampleSizePerLook <- simulation %>%
-    mutate(events = .data$targetEvents + .data$comparatorEvents,
-           z = .data$comparatorTime / .data$targetTime) %>%
-    select(.data$exposureOutcomeId,
-           .data$databaseId,
-           .data$timeAtRiskId,
-           .data$methodId,
-           .data$lookId,
-           .data$events,
-           .data$z)
-
-  message("Computing critical values")
-  # subset <- split(sampleSizePerLook, paste(sampleSizePerLook$exposureOutcomeId, sampleSizePerLook$databaseId, sampleSizePerLook$timeAtRiskId, sampleSizePerLook$methodId))[[100]]
-  computeCv <- function(subset) {
-    alpha <- alphaPerMethod %>%
-      filter(.data$exposureOutcomeId == subset$exposureOutcomeId[1] &
-               .data$databaseId == subset$databaseId[1] &
-               .data$timeAtRiskId == subset$timeAtRiskId[1]) %>%
-      pull(.data$alpha)
-    sampleSizeUpperLimit <- max(subset$events, na.rm = TRUE)
-    events <- subset$events
-    if (length(events) > 1) {
-      events[2:length(events)] <- events[2:length(events)] - events[1:(length(events)-1)]
-      events <- events[events != 0]
-    }
-    if (length(events) == 0) {
-      cv <- Inf
-      cvAlpha <- 0
-    } else {
-      suppressMessages(
-        cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
-                                                      z = mean(subset$z),
-                                                      minimumEvents = 1,
-                                                      sampleSize = 1e7,
-                                                      alpha = alpha)
-      )
-      cvAlpha <- attr(cv, "alpha")
-    }
-    tibble(exposureOutcomeId = subset$exposureOutcomeId[1],
-           databaseId = subset$databaseId[1],
-           timeAtRiskId = subset$timeAtRiskId[1],
-           methodId = subset$methodId[1],
-           cv = !!cv,
-           cvAlpha = !!cvAlpha) %>%
-      return()
+computeCriticalValues <- function(simulation, alphaPerMethod, distributions, cacheFolder) {
+  if (!is.null(cacheFolder)) {
+    cacheFile <- file.path(cacheFolder, "CriticalValues.rds")
+    cache <- TRUE
+  } else {
+    cache <- FALSE
   }
-  criticalValues <- map_dfr(split(sampleSizePerLook, paste(sampleSizePerLook$exposureOutcomeId,
-                                                           sampleSizePerLook$databaseId,
-                                                           sampleSizePerLook$timeAtRiskId,
-                                                           sampleSizePerLook$methodId)),
-                            computeCv)
-  return(criticalValues)
-}
+  if (cache && file.exists(cacheFile)) {
+    criticalValues <- readRDS(cacheFile)
+  } else {
+    simulationSettings <- attr(simulation, "simulationSettings")
+    exposureOutcomeSettings <- map_dfr(simulationSettings$exposureOutcomeSettings,
+                                       function(x) return(tibble(z = x$nComparator / x$nTarget,
+                                                                 expectedEventsPerDay = x$backgroundRate * (x$nComparator + x$nTarget)))) %>%
+      mutate(exposureOutcomeId = row_number())
+    databaseSettings <- map_dfr(simulationSettings$databaseSettings,
+                                function(x) return(tibble(sampleSizeMultiplier = x$sampleSizeMultiplier))) %>%
+      mutate(databaseId = row_number())
+    timeAtRiskSettings <- map_dfr(simulationSettings$timeAtRiskSettings,
+                                  function(x) return(tibble(start = x$start, end = x$end))) %>%
+      mutate(timeAtRiskId  = row_number())
+    values <- alphaPerMethod %>%
+      inner_join(exposureOutcomeSettings, by = "exposureOutcomeId") %>%
+      inner_join(databaseSettings, by = "databaseId") %>%
+      inner_join(timeAtRiskSettings, by = "timeAtRiskId") %>%
+      inner_join(distributions, by = c("databaseId", "timeAtRiskId")) %>%
+      mutate(expectedEvents = .data$expectedEventsPerDay * .data$sampleSizeMultiplier * (.data$end - .data$start + 1))
+    uniqueValues <- values %>%
+      distinct(.data$expectedEvents, .data$z, .data$alpha, .data$systematicErrorMean , .data$systematicErrorSd)
 
-computeCriticalValuesUsingExpected <- function(simulation, alphaPerMethod) {
-  simulationSettings <- attr(simulation, "simulationSettings")
-  exposureOutcomeSettings <- map_dfr(simulationSettings$exposureOutcomeSettings,
-                                     function(x) return(tibble(z = x$nComparator / x$nTarget,
-                                                               expectedEventsPerDay = x$backgroundRate * (x$nComparator + x$nTarget)))) %>%
-    mutate(exposureOutcomeId = row_number())
-  databaseSettings <- map_dfr(simulationSettings$databaseSettings,
-                              function(x) return(tibble(sampleSizeMultiplier = x$sampleSizeMultiplier))) %>%
-    mutate(databaseId = row_number())
-  timeAtRiskSettings <- map_dfr(simulationSettings$timeAtRiskSettings,
-                                function(x) return(tibble(start = x$start, end = x$end))) %>%
-    mutate(timeAtRiskId  = row_number())
-  values <- alphaPerMethod %>%
-    inner_join(exposureOutcomeSettings, by = "exposureOutcomeId") %>%
-    inner_join(databaseSettings, by = "databaseId") %>%
-    inner_join(timeAtRiskSettings, by = "timeAtRiskId") %>%
-    mutate(expectedEvents = .data$expectedEventsPerDay * .data$sampleSizeMultiplier * (.data$end - .data$start + 1))
-  uniqueValues <- values %>%
-    distinct(.data$expectedEvents, .data$z, .data$alpha)
+    message("Computing critical values")
+    # row <- split(uniqueValues, 1:nrow(uniqueValues))[[1]]
+    computeCv <- function(row) {
+      print("Check")
+      events <- round(1:simulationSettings$looks * row$expectedEvents)
+      if (length(events) > 1) {
+        events[2:length(events)] <- events[2:length(events)] - events[1:(length(events)-1)]
+        events <- events[events != 0]
+      }
+      if (length(events) == 0) {
+        cv <- Inf
+        cvAlpha <- 0
+        calibratedCv <- Inf
+        calibratedCvAlpha <- 0
+      } else {
+        suppressMessages(
+          cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
+                                                        z = row$z,
+                                                        minimumEvents = 1,
+                                                        sampleSize = 1e6,
+                                                        alpha = row$alpha)
+        )
+        cvAlpha <- attr(cv, "alpha")
+        suppressMessages(
+          calibratedCv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
+                                                                  z = row$z,
+                                                                  minimumEvents = 1,
+                                                                  sampleSize = 1e6,
+                                                                  alpha = row$alpha,
+                                                                  nullMean = row$systematicErrorMean,
+                                                                  nullSd = row$systematicErrorSd)
+        )
+        calibratedCvAlpha <- attr(cv, "alpha")
+      }
+      row %>%
+        mutate(cv = !!cv,
+               cvAlpha = !!cvAlpha,
+               calibratedCv = !!calibratedCv,
+               calibratedCvAlpha = !!calibratedCvAlpha) %>%
+        return()
+    }
+    uniqueCvs <- map_dfr(split(uniqueValues, 1:nrow(uniqueValues)), computeCv)
 
-  message("Computing critical values")
-  # row <- split(uniqueValues, 1:nrow(uniqueValues))[[1]]
-  computeCv <- function(row) {
-    events <- round(1:simulationSettings$looks * row$expectedEvents)
-    if (length(events) > 1) {
-      events[2:length(events)] <- events[2:length(events)] - events[1:(length(events)-1)]
-      events <- events[events != 0]
+    criticalValues <- values %>%
+      inner_join(uniqueCvs, by = c("alpha", "z", "expectedEvents", "systematicErrorMean", "systematicErrorSd")) %>%
+      select(.data$exposureOutcomeId,
+             .data$databaseId,
+             .data$timeAtRiskId,
+             .data$methodId,
+             .data$lookId,
+             .data$cv,
+             .data$cvAlpha,
+             .data$calibratedCv,
+             .data$calibratedCvAlpha)
+    if (cache) {
+      saveRDS(criticalValues, cacheFile)
     }
-    if (length(events) == 0) {
-      cv <- Inf
-      cvAlpha <- 0
-    } else {
-      suppressMessages(
-        # cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
-        #                                               z = row$z,
-        #                                               minimumEvents = 1,
-        #                                               sampleSize = 1e7,
-        #                                               alpha = row$alpha)
-        cv <- EmpiricalCalibration::computeCvPoissonRegression(groupSizes = events,
-                                                               z = row$z,
-                                                               minimumEvents = 1,
-                                                               sampleSize = 1e7,
-                                                               alpha = row$alpha)
-      )
-      cvAlpha <- attr(cv, "alpha")
-    }
-    row %>%
-      mutate(cv = !!cv,
-             cvAlpha = !!cvAlpha) %>%
-      return()
   }
-  uniqueCvs <- map_dfr(split(uniqueValues, 1:nrow(uniqueValues)), computeCv)
-
-  criticalValues <- values %>%
-    inner_join(uniqueCvs, by = c("alpha", "z", "expectedEvents")) %>%
-    select(.data$exposureOutcomeId, .data$databaseId, .data$timeAtRiskId, .data$cv, .data$cvAlpha) %>%
-    full_join(tibble(methodId = 1:length(simulationSettings$methodSettings)), by = character())
   return(criticalValues)
 }

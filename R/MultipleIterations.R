@@ -112,6 +112,7 @@ runDiscoverySystemIterations <- function(simulationsFolder,
   message(paste("Running simulations took", signif(delta, 3), attr(delta, "units")))
 }
 
+# simulationFile = simulationFiles[1]
 runDiscoverySystemIteration <- function(simulationFile,
                                         discoverySystemSettings,
                                         simulationsFolder,
