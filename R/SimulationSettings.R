@@ -23,7 +23,7 @@
 #'
 #' @param nTarget        Number of subjects in the target population.
 #' @param nComparator    Number of subjects in the comparator (counterfactual) population.
-#' @param backgroundRate Poisson background rate of the outcome.
+#' @param backgroundRate Poisson background rate (per day) of the outcome.
 #' @param logRrMean      The mean of the log relative distribution across databases.
 #' @param logRrSd        The standard deviation (SD) of the log relative distribution across databases.
 #' @param riskStart      Start of the true risk window (relative to exposure start).

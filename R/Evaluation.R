@@ -17,34 +17,34 @@
 # library(dplyr)
 # library(purrr)
 
-#' Compute confusion matrix
-#'
-#' @param signals            An object created using [runDiscoverySystem()].
-#' @param simulationSettings An object created using [createSimulationSettings()].
-#' @param level              The level at which to compute the confusion matrix. Currently
-#'                           supports "exposure-outcome" and "across looks".
-#'
-#' @return
-#' A tibble.
-#'
-#' @export
-computeConfusionMatrix <- function(signals, simulationSettings, level = "exposure-outcome") {
+
+evaluateSignals <- function(signals, simulationSettings) {
+  groups <- signals %>%
+    group_by(.data$alpha) %>%
+    group_split()
+
+
+  computePerAlphaMetrics <- function(group) {
+    metrics <- computeConfusionMatrix(group, simulationSettings) %>%
+      inner_join(computeUtility(group, simulationSettings), by = "label") %>%
+      mutate(alpha = group$alpha[1])
+  }
+  perAlphaMetrics <- map_dfr(groups, computePerAlphaMetrics)
+
+
+}
+
+
+
+computeConfusionMatrix <- function(signals, simulationSettings) {
   negativeControlIds <- getNegativeControlIds(simulationSettings)
 
-  if (level == "exposure-outcome") {
-    signalsPerExposureOutcome <- signals %>%
-      group_by(.data$exposureOutcomeId)
-  } else if (level == "across looks") {
-    signalsPerExposureOutcome <- signals %>%
-      group_by(.data$exposureOutcomeId, .data$databaseId, .data$methodId, .data$timeAtRiskId)
-  } else {
-    stop(sprintf("Unknown level '%s'. Please select 'exposure-outcome' or 'across looks'", level))
-  }
-
-  signalsPerExposureOutcome <- signalsPerExposureOutcome %>%
+  signalsPerExposureOutcome <- signals %>%
+    group_by(.data$exposureOutcomeId) %>%
     summarise(signalMaxSprt = any(.data$signalMaxSprt),
               signalCalibratedMaxSprt = any(.data$signalCalibratedMaxSprt),
               signalP = any(.data$signalP),
+              signalCalibratedP = any(.data$signalCalibratedP),
               .groups = "drop") %>%
     mutate(groundTruth = !.data$exposureOutcomeId %in% negativeControlIds)
 
@@ -56,7 +56,10 @@ computeConfusionMatrix <- function(signals, simulationSettings, level = "exposur
                                              "MaxSPRT"),
                                computeMatrix(signalsPerExposureOutcome$signalP,
                                              signalsPerExposureOutcome$groundTruth,
-                                             "P"))
+                                             "P"),
+                               computeMatrix(signalsPerExposureOutcome$signalCalibratedP,
+                                             signalsPerExposureOutcome$groundTruth,
+                                             "calibratedP"))
   return(confusionMatrix)
 }
 
@@ -71,12 +74,69 @@ computeMatrix <- function(signal, groundTruth, label) {
          fn = fn,
          type1 = fp / (fp + tn),
          type2 = fn / (tp + fn),
+         fdr = fp / (tp + fp),
          label = label) %>%
     return()
 }
 
+computeUtility <- function(signals, simulationSettings) {
+  utilityPerExposureOutcome <- map_dfr(simulationSettings$exposureOutcomeSettings, computeUtilityPerExposureOutcome) %>%
+    mutate(exposureOutcomeId = row_number())
+
+  signalsPerExposureOutcome <- signals %>%
+    group_by(.data$exposureOutcomeId) %>%
+    summarise(
+      signalMaxSprt = any(.data$signalMaxSprt),
+      signalCalibratedMaxSprt = any(.data$signalCalibratedMaxSprt),
+      signalP = any(.data$signalP),
+      signalCalibratedP = any(.data$signalCalibratedP),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_longer(
+      cols = starts_with("signal"),
+    )
 
 
+  utility <- signalsPerExposureOutcome %>%
+    inner_join(utilityPerExposureOutcome, by = "exposureOutcomeId") %>%
+    mutate(utility = if_else(.data$value, uPositive, uNegative)) %>%
+    group_by(.data$name) %>%
+    summarise(
+      utility = sum(utility),
+      .groups = "drop"
+    ) %>%
+    mutate(label = case_when(
+      .data$name == "signalCalibratedMaxSprt" ~ "Calibrated MaxSPRT",
+      .data$name == "signalCalibratedP" ~ "calibratedP",
+      .data$name == "signalMaxSprt" ~ "MaxSPRT",
+      .data$name == "signalP" ~ "P"
+    )) %>%
+    select(-.data$name)
+  return(utility)
+}
+
+computeUtilityPerExposureOutcome <- function(exposureOutcomeSetting) {
+  sumDbMultipliers <- sum(unlist(ParallelLogger::selectFromList(simulationSettings$databaseSettings, "sampleSizeMultiplier")))
+  negative <- exposureOutcomeSetting$logRrMean == 0 & exposureOutcomeSetting$logRrSd == 0
+  exposedCases <- exposureOutcomeSetting$nTarget *
+    exposureOutcomeSetting$backgroundRate *
+    (exposureOutcomeSetting$riskEnd - exposureOutcomeSetting$riskStart + 1) *
+    sumDbMultipliers *
+    exp(exposureOutcomeSetting$logRrMean)
+  if (negative) {
+    fictitiousRr <- 2
+    utility <- tibble(
+      uPositive = exposedCases - (exposedCases/fictitiousRr),
+      uNegative = 0
+    )
+  } else {
+    utility <- tibble(
+      uPositive = 0,
+      uNegative = exposedCases - (exposedCases/exp(exposureOutcomeSetting$logRrMean))
+    )
+  }
+  return(utility)
+}
 
 
 #' Plot distribution of false positives and negatives

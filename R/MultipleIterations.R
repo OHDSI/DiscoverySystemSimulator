@@ -84,7 +84,11 @@ runDiscoverySystemIterations <- function(simulationsFolder,
                                          signalsFolder,
                                          discoverySystemSettings = createDiscoverySystemSettings(),
                                          threads = 4,
-                                         useCaching = TRUE) {
+                                         useCaching = TRUE,
+                                         cvCacheFile = NULL) {
+  if (is.null(cvCacheFile)) {
+    warning("The cvCacheFile argument is not set.")
+  }
   startTime <- Sys.time()
   if (!dir.exists(signalsFolder)) {
     message(sprintf("Folder '%s' does not exist, so creating it.", signalsFolder))
@@ -106,7 +110,8 @@ runDiscoverySystemIterations <- function(simulationsFolder,
                                         discoverySystemSettings = discoverySystemSettings,
                                         simulationsFolder = simulationsFolder,
                                         signalsFolder = signalsFolder,
-                                        useCaching = useCaching)
+                                        useCaching = useCaching,
+                                        cvCacheFile = cvCacheFile)
 
   delta <- Sys.time() - startTime
   message(paste("Running simulations took", signif(delta, 3), attr(delta, "units")))
@@ -117,7 +122,8 @@ runDiscoverySystemIteration <- function(simulationFile,
                                         discoverySystemSettings,
                                         simulationsFolder,
                                         signalsFolder,
-                                        useCaching) {
+                                        useCaching,
+                                        cvCacheFile) {
   signalsFile <- gsub("Simulation_", "Signals_", simulationFile)
 
   if (!file.exists(file.path(signalsFolder, signalsFile))) {
@@ -130,7 +136,8 @@ runDiscoverySystemIteration <- function(simulationFile,
     }
     signals <- runDiscoverySystem(simulation = simulation,
                                   discoverySystemSettings = discoverySystemSettings,
-                                  cacheFolder = cacheFolder)
+                                  cacheFolder = cacheFolder,
+                                  cvCacheFile = cvCacheFile)
     saveRDS(signals, file.path(signalsFolder, signalsFile))
     simulationSettingsFile <- file.path(signalsFolder, "simulationSettings.rds")
     if (!file.exists(simulationSettingsFile)) {
@@ -144,7 +151,7 @@ runDiscoverySystemIteration <- function(simulationFile,
 #' @details
 #' Requires [runSimulationIterations()] to have already been executed.
 #'
-#' @param signalsFolder       The folder containing the signal objects.
+#' @param signalsFolder      The folder containing the signal objects.
 #' @param level              The level at which to compute the confusion matrix. Currently
 #'                           supports "exposure-outcome" and "max-sprt".
 #'

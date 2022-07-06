@@ -1,16 +1,14 @@
 library(DiscoverySystemSimulator)
-
-
 maxCores <- 25
+cvCacheFile <- "s:/DiscoverSytemSimulations/cvCache.rds"
 
-
+# Large test ------------------------------------------------------------------
 simulationSettings <- createSimulationSettings()
 simulationsFolder <- "s:/DiscoverSytemSimulations/Simulations"
 runSimulationIterations(simulationsFolder = simulationsFolder,
                         threads = maxCores)
 
 discoverySystemSettings <- createDiscoverySystemSettings()
-discoverySystemSettings$alpha <- 0.50
 signalsFolder <- "s:/DiscoverSytemSimulations/SignalsAlpha0.5"
 runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
                              signalsFolder = signalsFolder,
@@ -59,4 +57,36 @@ doEvaluation <- function(signalFile) {
 }
 confusionMatrices <-map_dfr(signalFiles, doEvaluation)
 
+# Small Simulation test --------------------------------------------------------
+simulationsFolder <- "s:/DiscoverSytemSimulations/smallSimulations"
+simulationSettings <- createSimulationSettings(
+  exposureOutcomeSettings = c(
+    lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
+    lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0)
+  ),
+  timeAtRiskSettings = list(
+    createTimeAtRiskSettings(0, 21)
+  ),
+  methodSettings = list(
+    createMethodSettings(0.10, 0.10)
+  ),
+  databaseSettings = list(
+    createDatabaseSettings(1.0)
+  ),
+  looks = 10
+)
 
+signalsFolder <- "s:/DiscoverSytemSimulations/smallSignals"
+discoverySystemSettings <- createDiscoverySystemSettings()
+
+runSimulationIterations(
+  simulationsFolder = simulationsFolder,
+  threads = maxCores
+)
+runDiscoverySystemIterations(
+  simulationsFolder = simulationsFolder,
+  signalsFolder = signalsFolder,
+  discoverySystemSettings = discoverySystemSettings,
+  threads = maxCores,
+  cvCacheFile = cvCacheFile
+)
