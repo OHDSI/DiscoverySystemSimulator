@@ -74,6 +74,8 @@ runIteration <- function(iteration, simulationSettings, simulationsFolder) {
 #'                           be lower than the number of CPU cores.
 #' @param useCaching         Cache intermediate artifacts in the `simulationsFolder`? This will
 #'                           greatly speed up subsequent runs.
+#' @param cvCacheFile             Optionally, the name of a global cache file for critical values.
+#'                                If `NULL`, no caching is performed.
 #'
 #' @return
 #' This function does not return anything, but writes all output to the specified
@@ -152,26 +154,25 @@ runDiscoverySystemIteration <- function(simulationFile,
 #' Requires [runSimulationIterations()] to have already been executed.
 #'
 #' @param signalsFolder      The folder containing the signal objects.
-#' @param level              The level at which to compute the confusion matrix. Currently
-#'                           supports "exposure-outcome" and "max-sprt".
 #'
 #' @return
 #' A tibble combining the confusion matrices of all iterations.
 #'
 #' @export
-evaluateIterations <- function(signalsFolder, level = "exposure-outcome") {
+evaluateIterations <- function(signalsFolder) {
   simulationSettings <- readRDS(file.path(signalsFolder, "simulationSettings.rds"))
   signalFiles <- list.files(path = signalsFolder, pattern = "Signals_.*.rds", full.names = TRUE)
 
-  doEvaluation <- function(signalFile) {
+  doEvaluation <- function(signalFile, simulationSettings) {
     iteration <- as.numeric(gsub("^.*_i", "", gsub(".rds", "", signalFile)))
     signals <- readRDS(signalFile)
-    matrix <- computeConfusionMatrix(signals = signals,
-                                     simulationSettings = simulationSettings,
-                                     level = level) %>%
+    evaluateSignals(
+      signals = signals,
+      simulationSettings = simulationSettings
+    ) %>%
       mutate(iteration = !!iteration) %>%
       return()
   }
-  map_dfr(signalFiles, doEvaluation) %>%
+  map_dfr(signalFiles, doEvaluation, simulationSettings = simulationSettings) %>%
     return()
 }

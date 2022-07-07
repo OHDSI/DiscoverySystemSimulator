@@ -4,13 +4,10 @@
 \alias{evaluateIterations}
 \title{Evaluate iterations}
 \usage{
-evaluateIterations(signalsFolder, level = "exposure-outcome")
+evaluateIterations(signalsFolder)
 }
 \arguments{
 \item{signalsFolder}{The folder containing the signal objects.}
-
-\item{level}{The level at which to compute the confusion matrix. Currently
-supports "exposure-outcome" and "max-sprt".}
 }
 \value{
 A tibble combining the confusion matrices of all iterations.

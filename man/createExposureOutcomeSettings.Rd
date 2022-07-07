@@ -19,7 +19,7 @@ createExposureOutcomeSettings(
 
 \item{nComparator}{Number of subjects in the comparator (counterfactual) population.}
 
-\item{backgroundRate}{Poisson background rate of the outcome.}
+\item{backgroundRate}{Poisson background rate (per day) of the outcome.}
 
 \item{logRrMean}{The mean of the log relative distribution across databases.}
 

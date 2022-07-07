@@ -81,6 +81,7 @@ discoverySystemSettings <- createDiscoverySystemSettings()
 
 runSimulationIterations(
   simulationsFolder = simulationsFolder,
+  simulationSettings = simulationSettings,
   threads = maxCores
 )
 runDiscoverySystemIterations(
@@ -89,4 +90,45 @@ runDiscoverySystemIterations(
   discoverySystemSettings = discoverySystemSettings,
   threads = maxCores,
   cvCacheFile = cvCacheFile
+)
+evaluation <- evaluateIterations(signalsFolder)
+plotFalsePositiveNegatives(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = NULL,
+  fileName = file.path(signalsFolder, "fpfn_CalibratedMaxSprt.png")
+)
+
+plotFalsePositiveNegatives(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = unique(evaluation$alpha)[c(1, 6, 10)],
+  fileName = file.path(signalsFolder, "fpfn_CalibratedMaxSprt3Alphas.png")
+)
+
+plotFalseDiscoveryRate(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = NULL,
+  fileName = file.path(signalsFolder, "fdr_CalibratedMaxSprt.png")
+)
+plotFalseDiscoveryRate(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = unique(evaluation$alpha)[c(1, 6, 10)],
+  fileName = file.path(signalsFolder, "fdr_CalibratedMaxSprt3Alphas.png")
+)
+
+plotRoc(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = NULL,
+  fileName = file.path(signalsFolder, "roc_CalibratedMaxSprt.png")
+)
+
+plotUtility(
+  evaluation = evaluation,
+  labels = "Calibrated MaxSPRT",
+  alphas = NULL,
+  fileName = file.path(signalsFolder, "utility_CalibratedMaxSprt.png")
 )

@@ -9,7 +9,8 @@ runDiscoverySystemIterations(
   signalsFolder,
   discoverySystemSettings = createDiscoverySystemSettings(),
   threads = 4,
-  useCaching = TRUE
+  useCaching = TRUE,
+  cvCacheFile = NULL
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ be lower than the number of CPU cores.}
 
 \item{useCaching}{Cache intermediate artifacts in the \code{simulationsFolder}? This will
 greatly speed up subsequent runs.}
+
+\item{cvCacheFile}{Optionally, the name of a global cache file for critical values.
+If \code{NULL}, no caching is performed.}
 }
 \value{
 This function does not return anything, but writes all output to the specified
