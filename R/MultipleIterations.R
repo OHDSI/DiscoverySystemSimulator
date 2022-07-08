@@ -116,7 +116,7 @@ runDiscoverySystemIterations <- function(simulationsFolder,
                                         cvCacheFile = cvCacheFile)
 
   delta <- Sys.time() - startTime
-  message(paste("Running simulations took", signif(delta, 3), attr(delta, "units")))
+  message(paste("Running discovery system took", signif(delta, 3), attr(delta, "units")))
 }
 
 # simulationFile = simulationFiles[1]

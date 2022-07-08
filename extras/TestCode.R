@@ -1,64 +1,24 @@
 library(DiscoverySystemSimulator)
 maxCores <- 25
-cvCacheFile <- "s:/DiscoverSytemSimulations/cvCache.rds"
+mainFolder <- "d:/DiscoverSytemSimulations"
+cvCacheFile <- file.path(mainFolder, "cvCache.rds")
 
 # Large test ------------------------------------------------------------------
 simulationSettings <- createSimulationSettings()
-simulationsFolder <- "s:/DiscoverSytemSimulations/Simulations"
+simulationsFolder <- file.path(mainFolder, "Simulations")
 runSimulationIterations(simulationsFolder = simulationsFolder,
                         threads = maxCores)
 
 discoverySystemSettings <- createDiscoverySystemSettings()
-signalsFolder <- "s:/DiscoverSytemSimulations/SignalsAlpha0.5"
+signalsFolder <- file.path(mainFolder, "SignalsBaseline")
 runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
                              signalsFolder = signalsFolder,
                              discoverySystemSettings = discoverySystemSettings,
-                             threads = maxCores)
-
-confusionMatrices <- evaluateIterations(signalsFolder = signalsFolder)
-
-confusionMatrices <- evaluateIterations(signalsFolder = signalsFolder, level = "across looks")
-mean(confusionMatrices$type1[confusionMatrices$label == "Calibrated MaxSPRT"] ) * 10000
-mean(confusionMatrices$type1[confusionMatrices$label == "MaxSPRT"]) * 10000
-mean(confusionMatrices$type1[confusionMatrices$label == "P"]) * 10000
-alpha <- 0.5
-maxSprtAlpha <- alpha /
-  length(simulationSettings$exposureOutcomeSettings) /
-  length(simulationSettings$databaseSettings) /
-  length(simulationSettings$methodSettings) /
-  length(simulationSettings$timeAtRiskSettings)
-maxSprtAlpha * 10000
-# confusionMatrices <- readRDS(file.path(signalsFolder, "ConfusionMatrices.rds"))
-plotFalsePositiveNegatives(confusionMatrices,
-                           cumulative = TRUE,
-                           alpha = 0.5,
-                           fileName = file.path(signalsFolder, "fnfpPlot.png"))
-
-# simulation <- simulateDiscoverySystem(simulationSettings)
-# simulation <- readRDS(file.path(simulationsFolder, "Simulation_i1.rds"))
-signals <- runDiscoverySystem(simulation, discoverySystemSettings)
-# signals <- readRDS(file.path(signalsFolder, "Signals_i1.rds"))
-# computeConfusionMatrix(signals = signals,
-#                        simulationSettings = simulationSettings)
-
-level = "across looks"
-simulationSettings <- readRDS(file.path(signalsFolder, "simulationSettings.rds"))
-signalFiles <- list.files(path = signalsFolder, pattern = "Signals_.*.rds", full.names = TRUE)
-
-doEvaluation <- function(signalFile) {
-  iteration <- as.numeric(gsub("^.*_i", "", gsub(".rds", "", signalFile)))
-  signals <- readRDS(signalFile) %>%
-    filter(.data$methodId == 1)
-  matrix <- computeConfusionMatrix(signals = signals,
-                                   simulationSettings = simulationSettings,
-                                   level = level) %>%
-    mutate(iteration = !!iteration) %>%
-    return()
-}
-confusionMatrices <-map_dfr(signalFiles, doEvaluation)
+                             threads = maxCores,
+                             cvCacheFile = cvCacheFile)
 
 # Small Simulation test --------------------------------------------------------
-simulationsFolder <- "s:/DiscoverSytemSimulations/smallSimulations"
+simulationsFolder <- file.path(mainFolder, "smallSimulations")
 simulationSettings <- createSimulationSettings(
   exposureOutcomeSettings = c(
     lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
@@ -76,7 +36,7 @@ simulationSettings <- createSimulationSettings(
   looks = 10
 )
 
-signalsFolder <- "s:/DiscoverSytemSimulations/smallSignals"
+signalsFolder <- file.path(mainFolder, "smallSignals")
 discoverySystemSettings <- createDiscoverySystemSettings()
 
 runSimulationIterations(
@@ -91,6 +51,8 @@ runDiscoverySystemIterations(
   threads = maxCores,
   cvCacheFile = cvCacheFile
 )
+
+# Do evaluations ---------------------------------------------------------------
 evaluation <- evaluateIterations(signalsFolder)
 plotFalsePositiveNegatives(
   evaluation = evaluation,
