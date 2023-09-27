@@ -18,55 +18,85 @@
 # library(purrr)
 # source("C:/Users/mschuemi/git/DiscoverySystemSimulator/R/SimulationSettings.R")
 
+doTransform <- function(signals) {
+  # Should become obsolete when fixing performCalibratedMaxSprt()
+  pivot <- signals %>%
+    tidyr::pivot_longer(cols = starts_with("signal"),
+                        names_to = "detectionMethod",
+                        values_to = "signal") %>%
+    mutate(label = case_when(
+      .data$detectionMethod == "signalCalibratedMaxSprt" ~ "Calibrated MaxSPRT",
+      .data$detectionMethod == "signalCalibratedP" ~ "Calibrated P",
+      .data$detectionMethod == "signalMaxSprt" ~ "MaxSPRT",
+      .data$detectionMethod == "signalP" ~ "P"
+    )) %>%
+    select(-"detectionMethod")
+  signals <- pivot %>%
+    filter(.data$signal) %>%
+    group_by(.data$exposureOutcomeId, .data$label, .data$alpha) %>%
+    summarize(lookId = min(.data$lookId))
+  signals <- pivot %>%
+    distinct(.data$exposureOutcomeId, .data$label, .data$alpha) %>%
+    left_join(signals, by = join_by("exposureOutcomeId", "label", "alpha")) %>%
+    mutate(lookId = if_else(is.na(.data$lookId), Inf, .data$lookId))
+  return(signals)
+}
+
 evaluateSignals <- function(signals, simulationSettings) {
+  signals <- doTransform(signals)
+  signalAll <- tibble(
+    exposureOutcomeId = seq_along(simulationSettings$exposureOutcomeSettings),
+    label = "Signal all",
+    lookId = 0)
+  signalNone <- tibble(
+    exposureOutcomeId = seq_along(simulationSettings$exposureOutcomeSettings),
+    label = "Signal none",
+    lookId = Inf)
   groups <- signals %>%
     group_by(.data$alpha) %>%
     group_split()
-
   computePerAlphaMetrics <- function(group, simulationSettings) {
+    group <- group %>%
+      bind_rows(signalAll, signalNone)
     metrics <- computeConfusionMatrix(group, simulationSettings) %>%
-      inner_join(computeUtility(group, simulationSettings), by = "label") %>%
+      left_join(computeAttributableRisk(group, simulationSettings), by = "label") %>%
       mutate(alpha = group$alpha[1])
+    # metrics <- computeAttributableRisk(group, simulationSettings) %>%
+    #   mutate(alpha = group$alpha[1])
   }
   perAlphaMetrics <- map_dfr(groups, computePerAlphaMetrics, simulationSettings = simulationSettings)
 
   return(perAlphaMetrics)
 }
 
-
-
 computeConfusionMatrix <- function(signals, simulationSettings) {
   negativeControlIds <- getNegativeControlIds(simulationSettings)
-
-  signalsPerExposureOutcome <- signals %>%
-    group_by(.data$exposureOutcomeId) %>%
-    summarise(signalMaxSprt = any(.data$signalMaxSprt),
-              signalCalibratedMaxSprt = any(.data$signalCalibratedMaxSprt),
-              signalP = any(.data$signalP),
-              signalCalibratedP = any(.data$signalCalibratedP),
-              .groups = "drop") %>%
-    mutate(groundTruth = !.data$exposureOutcomeId %in% negativeControlIds)
-
-  confusionMatrix <- bind_rows(computeMatrix(signalsPerExposureOutcome$signalCalibratedMaxSprt,
-                                             signalsPerExposureOutcome$groundTruth,
-                                             "Calibrated MaxSPRT"),
-                               computeMatrix(signalsPerExposureOutcome$signalMaxSprt,
-                                             signalsPerExposureOutcome$groundTruth,
-                                             "MaxSPRT"),
-                               computeMatrix(signalsPerExposureOutcome$signalP,
-                                             signalsPerExposureOutcome$groundTruth,
-                                             "P"),
-                               computeMatrix(signalsPerExposureOutcome$signalCalibratedP,
-                                             signalsPerExposureOutcome$groundTruth,
-                                             "calibratedP"))
-  return(confusionMatrix)
+  labels <- signals %>%
+    distinct(.data$label) %>%
+    pull()
+  fullGrid <- expand.grid(label = labels,
+                          exposureOutcomeId = seq_along(simulationSettings$exposureOutcomeSettings),
+                          lookId = simulationSettings$looks) %>%
+    # lookId = seq_len(simulationSettings$looks)) %>%
+    left_join(signals %>%
+                rename(signalLookId = "lookId"),
+              by = join_by("label", "exposureOutcomeId")) %>%
+    mutate(signal = lookId >= signalLookId,
+           groundTruth = !.data$exposureOutcomeId %in% negativeControlIds)
+  # Probably could replace group_split and lapply with just some more dplyr here:
+  groups <- fullGrid %>%
+    group_by(.data$label, .data$lookId) %>%
+    group_split
+  confusionMatrices <- lapply(groups, computeMatrix) %>%
+    bind_rows()
+  return(confusionMatrices)
 }
 
-computeMatrix <- function(signal, groundTruth, label) {
-  tp <- sum(signal & groundTruth)
-  fp <- sum(signal & !groundTruth)
-  tn <- sum(!signal & !groundTruth)
-  fn <- sum(!signal & groundTruth)
+computeMatrix <- function(group) {
+  tp <- sum(group$signal & group$groundTruth)
+  fp <- sum(group$signal & !group$groundTruth)
+  tn <- sum(!group$signal & !group$groundTruth)
+  fn <- sum(!group$signal & group$groundTruth)
   tibble(tp = tp,
          fp = fp,
          tn = tn,
@@ -74,47 +104,41 @@ computeMatrix <- function(signal, groundTruth, label) {
          type1 = fp / (fp + tn),
          type2 = fn / (tp + fn),
          fdr = fp / (tp + fp),
-         label = label) %>%
+         label = group$label[1],
+         lookId = group$lookId[1]) %>%
     return()
 }
 
-computeUtility <- function(signals, simulationSettings) {
-  utilityPerExposureOutcome <- map_dfr(simulationSettings$exposureOutcomeSettings, computeUtilityPerExposureOutcome, simulationSettings = simulationSettings) %>%
-    mutate(exposureOutcomeId = row_number())
-
-  signalsPerExposureOutcome <- signals %>%
-    group_by(.data$exposureOutcomeId) %>%
-    summarise(
-      signalMaxSprt = any(.data$signalMaxSprt),
-      signalCalibratedMaxSprt = any(.data$signalCalibratedMaxSprt),
-      signalP = any(.data$signalP),
-      signalCalibratedP = any(.data$signalCalibratedP),
-      .groups = "drop"
-    ) %>%
-    tidyr::pivot_longer(
-      cols = starts_with("signal"),
-    )
-
-
-  utility <- signalsPerExposureOutcome %>%
-    inner_join(utilityPerExposureOutcome, by = "exposureOutcomeId") %>%
-    mutate(utility = if_else(.data$value, .data$uPositive, .data$uNegative)) %>%
-    group_by(.data$name) %>%
-    summarise(
-      utility = sum(utility),
-      .groups = "drop"
-    ) %>%
-    mutate(label = case_when(
-      .data$name == "signalCalibratedMaxSprt" ~ "Calibrated MaxSPRT",
-      .data$name == "signalCalibratedP" ~ "calibratedP",
-      .data$name == "signalMaxSprt" ~ "MaxSPRT",
-      .data$name == "signalP" ~ "P"
-    )) %>%
-    select(-.data$name)
-  return(utility)
+computeBaselineAttributableRisk <- function(simulationSettings) {
+  attributableRiskPerExposureOutcome <- map_dbl(simulationSettings$exposureOutcomeSettings,
+                                                computeAttributableRiskPerExposureOutcome,
+                                                simulationSettings = simulationSettings)
+  # Note: current simulation assumes equal number of exposures at each look, so attributable
+  # risk after n looks is just n * (attributable risk in one look):
+  attributableRiskPerExposureOutcome <- tibble(
+    attributableRisk = attributableRiskPerExposureOutcome,
+    exposureOutcomeId = seq_along(attributableRiskPerExposureOutcome)) %>%
+    cross_join(tibble(lookId = c(0, seq_len(simulationSettings$looks)))) %>%
+    mutate(attributableRisk = attributableRisk * (simulationSettings$looks - .data$lookId))
+  return(attributableRiskPerExposureOutcome)
 }
 
-computeUtilityPerExposureOutcome <- function(exposureOutcomeSetting, simulationSettings) {
+computeAttributableRisk <- function(signals, simulationSettings) {
+  attributableRiskPerExposureOutcome <- computeBaselineAttributableRisk(
+    simulationSettings = simulationSettings
+  )
+  attributableRisk <- signals %>%
+    filter(!is.infinite(.data$lookId)) %>%
+    inner_join(attributableRiskPerExposureOutcome, by = join_by("exposureOutcomeId", "lookId")) %>%
+    group_by(.data$label) %>%
+    summarise(
+      attributableRisk = sum(.data$attributableRisk),
+      .groups = "drop"
+    )
+  return(attributableRisk)
+}
+
+computeAttributableRiskPerExposureOutcome <- function(exposureOutcomeSetting, simulationSettings) {
   sumDbMultipliers <- sum(unlist(ParallelLogger::selectFromList(simulationSettings$databaseSettings, "sampleSizeMultiplier")))
   negative <- exposureOutcomeSetting$logRrMean == 0 & exposureOutcomeSetting$logRrSd == 0
   exposedCases <- exposureOutcomeSetting$nTarget *
@@ -123,18 +147,11 @@ computeUtilityPerExposureOutcome <- function(exposureOutcomeSetting, simulationS
     sumDbMultipliers *
     exp(exposureOutcomeSetting$logRrMean)
   if (negative) {
-    fictitiousRr <- 2
-    utility <- tibble(
-      uPositive = -(exposedCases - (exposedCases/fictitiousRr)),
-      uNegative = 0
-    )
+    attributableRisk <- 0
   } else {
-    utility <- tibble(
-      uPositive = 0,
-      uNegative = -(exposedCases - (exposedCases/exp(exposureOutcomeSetting$logRrMean)))
-    )
+    attributableRisk <- exposedCases - (exposedCases/exp(exposureOutcomeSetting$logRrMean))
   }
-  return(utility)
+  return(attributableRisk)
 }
 
 
@@ -339,10 +356,10 @@ plotRoc <- function(evaluation,
 #' A GGPlot object.
 #'
 #' @export
-plotUtility <- function(evaluation,
-                        labels = NULL,
-                        alphas = NULL,
-                        fileName = NULL) {
+plotDecisionCurves <- function(evaluation,
+                               labels = NULL,
+                               alphas = NULL,
+                               fileName = NULL) {
   if (is.null(labels)) {
     labels <- unique(evaluation$label)
   }
@@ -350,18 +367,29 @@ plotUtility <- function(evaluation,
   if (is.null(alphas)) {
     alphas <- unique(evaluation$alpha)
   }
+  # evaluation %>%
+  #   filter(label == "Calibrated MaxSPRT") %>%
+  #   mutate(p = 1 - (.data$alpha / nExposureOutcomes)) %>%
+  #   mutate(odds = p / (1-p))
 
+  nExposureOutcomes <- evaluation %>%
+    mutate(n = .data$tp + .data$fp + .data$tn + .data$fn) %>%
+    summarize(n = median(n)) %>%
+    pull()
+  # plotData <- evaluation %>%
+  #   filter(.data$iteration == 1) %>%
+  #   mutate(p = 1 - (.data$alpha / nExposureOutcomes)) %>%
+  #   mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p)))
   plotData <- evaluation %>%
-    filter(.data$label %in% labels & .data$alpha %in% alphas) %>%
-    select(.data$utility  , .data$label, .data$alpha, .data$iteration) %>%
-    mutate(alpha = as.factor(sprintf("%0.2f", .data$alpha)))
-
-  plot <- ggplot2::ggplot(plotData, ggplot2::aes(x = as.factor(.data$alpha), y = .data$utility  )) +
-    ggplot2::geom_violin(scale = "width", color = "#e85847", fill = "#e85847", alpha = 0.5) +
-    ggplot2::scale_x_discrete("Alpha") +
-    ggplot2::scale_y_continuous("Utility") +
-    ggplot2::facet_grid(.data$label~.)
-plot
+    filter(.data$iteration == 1, abs(.data$alpha - 5) < 0.01) %>%
+    cross_join(tibble(p = seq(0, 1, by = 0.01))) %>%
+    mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p)))
+  maxBenefit <- max(plotData$netBenefit, na.rm = TRUE)
+  plot <- ggplot2::ggplot(plotData, ggplot2::aes(x = p, y = .data$netBenefit, group = .data$label, color = .data$label)) +
+    ggplot2::geom_line(size = 2) +
+    ggplot2::scale_x_continuous("P") +
+    ggplot2::scale_y_continuous("Net benefit", limits = c(-maxBenefit/5, maxBenefit))
+  plot
   if (!is.null(fileName)) {
     ggplot2::ggsave(plot = plot,
                     filename = fileName,

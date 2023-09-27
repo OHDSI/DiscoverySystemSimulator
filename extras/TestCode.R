@@ -54,6 +54,7 @@ runDiscoverySystemIterations(
 
 # Do evaluations ---------------------------------------------------------------
 evaluation <- evaluateIterations(signalsFolder)
+saveRDS(evaluation, file.path(signalsFolder, "evaluation.rds"))
 plotFalsePositiveNegatives(
   evaluation = evaluation,
   labels = "Calibrated MaxSPRT",
@@ -88,9 +89,9 @@ plotRoc(
   fileName = file.path(signalsFolder, "roc_CalibratedMaxSprt.png")
 )
 
-plotUtility(
+plotDecisionCurves(
   evaluation = evaluation,
-  labels = "Calibrated MaxSPRT",
-  alphas = NULL,
-  fileName = file.path(signalsFolder, "utility_CalibratedMaxSprt.png")
+  fileName = file.path(signalsFolder, "decisionCurves_CalibratedMaxSprt.png")
 )
+
+

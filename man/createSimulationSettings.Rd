@@ -10,8 +10,8 @@ createSimulationSettings(
     logRrMean = log(2), logRrSd = 0.25)),
   timeAtRiskSettings = list(createTimeAtRiskSettings(0, 7), createTimeAtRiskSettings(0,
     21), createTimeAtRiskSettings(0, 42), createTimeAtRiskSettings(0, 90)),
-  methodSettings = list(createMethodSettings(0.05, 0.05), createMethodSettings(0.1,
-    0.1), createMethodSettings(0.2, 0.2)),
+  methodSettings = list(createMethodSettings(0.05, 0.05), createMethodSettings(0.1, 0.1),
+    createMethodSettings(0.2, 0.2)),
   databaseSettings = list(createDatabaseSettings(1), createDatabaseSettings(0.5),
     createDatabaseSettings(2)),
   looks = 10
