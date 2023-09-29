@@ -58,11 +58,11 @@ evaluateSignals <- function(signals, simulationSettings) {
   computePerAlphaMetrics <- function(group, simulationSettings) {
     group <- group %>%
       bind_rows(signalAll, signalNone)
-    metrics <- computeConfusionMatrix(group, simulationSettings) %>%
-      left_join(computeAttributableRisk(group, simulationSettings), by = "label") %>%
-      mutate(alpha = group$alpha[1])
-    # metrics <- computeAttributableRisk(group, simulationSettings) %>%
+    # metrics <- computeConfusionMatrix(group, simulationSettings) %>%
+    #   left_join(computeAttributableRisk(group, simulationSettings), by = "label") %>%
     #   mutate(alpha = group$alpha[1])
+    metrics <- computeAttributableRisk(group, simulationSettings) %>%
+      mutate(alpha = group$alpha[1])
   }
   perAlphaMetrics <- map_dfr(groups, computePerAlphaMetrics, simulationSettings = simulationSettings)
 
@@ -109,17 +109,60 @@ computeMatrix <- function(group) {
     return()
 }
 
+computeAttributableRiskPerExposureOutcome <- function(exposureOutcomeSetting, simulationSettings) {
+  sumDbMultipliers <- sum(unlist(ParallelLogger::selectFromList(simulationSettings$databaseSettings, "sampleSizeMultiplier")))
+  meanLogRr <- mean(unlist(ParallelLogger::selectFromList(simulationSettings$exposureOutcomeSettings, "logRrMean")))
+  negative <- exposureOutcomeSetting$logRrMean == 0 & exposureOutcomeSetting$logRrSd == 0
+  exposedCases <- exposureOutcomeSetting$nTarget *
+    exposureOutcomeSetting$backgroundRate *
+    (exposureOutcomeSetting$riskEnd - exposureOutcomeSetting$riskStart + 1) *
+    sumDbMultipliers *
+    exp(exposureOutcomeSetting$logRrMean)
+  if (negative) {
+    tibble(attributableRiskPositive = 0,
+           exposedCasesPositive = 0,
+           exposedPositive = 0,
+           timePositive = 0,
+           countPositive = 0,
+           attributableRiskNegative = (exp(meanLogRr) - 1) * exposedCases,
+           exposedCasesNegative = exposedCases,
+           exposedNegative = exposureOutcomeSetting$nTarget * sumDbMultipliers,
+           timeNegative = 1,
+           countNegative = 1) %>%
+      return()
+
+  } else {
+    tibble(attributableRiskPositive = exposedCases - (exposedCases/exp(exposureOutcomeSetting$logRrMean)),
+           exposedCasesPositive = exposedCases,
+           exposedPositive = exposureOutcomeSetting$nTarget * sumDbMultipliers,
+           timePositive = 1,
+           countPositive = 1,
+           attributableRiskNegative = 0,
+           exposedCasesNegative = 0,
+           exposedNegative = 0,
+           timeNegative = 0,
+           countNegative = 0) %>%
+      return()
+  }
+}
+
 computeBaselineAttributableRisk <- function(simulationSettings) {
-  attributableRiskPerExposureOutcome <- map_dbl(simulationSettings$exposureOutcomeSettings,
+  attributableRiskPerExposureOutcome <- map_dfr(simulationSettings$exposureOutcomeSettings,
                                                 computeAttributableRiskPerExposureOutcome,
-                                                simulationSettings = simulationSettings)
+                                                simulationSettings = simulationSettings) %>%
+    mutate(exposureOutcomeId = row_number())
   # Note: current simulation assumes equal number of exposures at each look, so attributable
   # risk after n looks is just n * (attributable risk in one look):
-  attributableRiskPerExposureOutcome <- tibble(
-    attributableRisk = attributableRiskPerExposureOutcome,
-    exposureOutcomeId = seq_along(attributableRiskPerExposureOutcome)) %>%
+  attributableRiskPerExposureOutcome <- attributableRiskPerExposureOutcome %>%
     cross_join(tibble(lookId = c(0, seq_len(simulationSettings$looks)))) %>%
-    mutate(attributableRisk = attributableRisk * (simulationSettings$looks - .data$lookId))
+    mutate(attributableRiskPositive = attributableRiskPositive * (simulationSettings$looks - .data$lookId),
+           exposedCasesPositive = exposedCasesPositive * (simulationSettings$looks - .data$lookId),
+           exposedPositive = exposedPositive * (simulationSettings$looks - .data$lookId),
+           timePositive = timePositive * (simulationSettings$looks - .data$lookId),
+           attributableRiskNegative = attributableRiskNegative * (simulationSettings$looks - .data$lookId),
+           exposedCasesNegative = exposedCasesNegative * (simulationSettings$looks - .data$lookId),
+           exposedNegative = exposedNegative * (simulationSettings$looks - .data$lookId),
+           timeNegative = timeNegative * (simulationSettings$looks - .data$lookId))
   return(attributableRiskPerExposureOutcome)
 }
 
@@ -128,32 +171,63 @@ computeAttributableRisk <- function(signals, simulationSettings) {
     simulationSettings = simulationSettings
   )
   attributableRisk <- signals %>%
-    filter(!is.infinite(.data$lookId)) %>%
-    inner_join(attributableRiskPerExposureOutcome, by = join_by("exposureOutcomeId", "lookId")) %>%
+    # filter(!is.infinite(.data$lookId)) %>%
+    left_join(attributableRiskPerExposureOutcome, by = join_by("exposureOutcomeId", "lookId")) %>%
     group_by(.data$label) %>%
     summarise(
-      attributableRisk = sum(.data$attributableRisk),
+      attributableRiskTp = sum(.data$attributableRiskPositive, na.rm = TRUE),
+      exposedCasesTp = sum(.data$exposedCasesPositive, na.rm = TRUE),
+      exposedTp = sum(.data$exposedPositive, na.rm = TRUE),
+      timeTp = sum(.data$timePositive, na.rm = TRUE),
+      countTp = sum(.data$countPositive, na.rm = TRUE),
+      attributableRiskFp = sum(.data$attributableRiskNegative, na.rm = TRUE),
+      exposedCasesFp = sum(.data$exposedCasesNegative, na.rm = TRUE),
+      exposedFp = sum(.data$exposedNegative, na.rm = TRUE),
+      timeFp = sum(.data$timeNegative, na.rm = TRUE),
+      countFp = sum(.data$countNegative, na.rm = TRUE),
       .groups = "drop"
-    )
+    ) %>%
+    cross_join(
+      attributableRiskPerExposureOutcome %>%
+        filter(.data$lookId == 0) %>%
+        summarise(
+          attributableRiskPositive = sum(.data$attributableRiskPositive),
+          exposedCasesPositive = sum(.data$exposedCasesPositive),
+          exposedPositive = sum(.data$exposedPositive),
+          timePositive = sum(.data$timePositive),
+          countPositive = sum(.data$countPositive),
+          attributableRiskNegative = sum(.data$attributableRiskNegative),
+          exposedCasesNegative = sum(.data$exposedCasesNegative),
+          exposedNegative = sum(.data$exposedNegative),
+          timeNegative = sum(.data$timeNegative),
+          countNegative = sum(.data$countNegative),
+          .groups = "drop"
+        )
+    ) %>%
+    mutate(
+      attributableRiskFn = .data$attributableRiskPositive - .data$attributableRiskTp,
+      exposedCasesFn = .data$exposedCasesPositive - .data$exposedCasesTp,
+      exposedFn = .data$exposedPositive - .data$exposedTp,
+      timeFn = .data$timePositive - .data$timeTp,
+      countFn = .data$countPositive - .data$countTp,
+      attributableRiskTn = .data$attributableRiskNegative - .data$attributableRiskFp,
+      exposedCasesTn = .data$exposedCasesNegative - .data$exposedCasesFp,
+      exposedTn = .data$exposedNegative - .data$exposedFp,
+      timeTn = .data$timeNegative - .data$timeFp,
+      countTn = .data$countNegative - .data$countFp
+    ) %>%
+    select(-"attributableRiskPositive",
+           -"exposedCasesPositive",
+           -"exposedPositive",
+           -"timePositive",
+           -"countPositive",
+           -"attributableRiskNegative",
+           -"exposedCasesNegative",
+           -"exposedNegative",
+           -"timeNegative",
+           -"countNegative")
   return(attributableRisk)
 }
-
-computeAttributableRiskPerExposureOutcome <- function(exposureOutcomeSetting, simulationSettings) {
-  sumDbMultipliers <- sum(unlist(ParallelLogger::selectFromList(simulationSettings$databaseSettings, "sampleSizeMultiplier")))
-  negative <- exposureOutcomeSetting$logRrMean == 0 & exposureOutcomeSetting$logRrSd == 0
-  exposedCases <- exposureOutcomeSetting$nTarget *
-    exposureOutcomeSetting$backgroundRate *
-    (exposureOutcomeSetting$riskEnd - exposureOutcomeSetting$riskStart + 1) *
-    sumDbMultipliers *
-    exp(exposureOutcomeSetting$logRrMean)
-  if (negative) {
-    attributableRisk <- 0
-  } else {
-    attributableRisk <- exposedCases - (exposedCases/exp(exposureOutcomeSetting$logRrMean))
-  }
-  return(attributableRisk)
-}
-
 
 #' Plot distribution of false positives and negatives
 #'
@@ -348,6 +422,8 @@ plotRoc <- function(evaluation,
 #' Plot utility
 #'
 #' @param evaluation        An object generated by [evaluateIterations()].
+#' @param impactWeighting   Type of impact weighting to use. Can be "none", "time",
+#'                          "exposed", "exposed cases", or "attributable cases".
 #' @param labels            Which labels to plot? (Values of the `label` column). If `NULL` then all values are plotted.
 #' @param alphas            Which alphas to plot? (Values of the `alpha` column). If `NULL` then all alphas are plotted.
 #' @param fileName          Optional: the name of the file to save the plot to.
@@ -357,44 +433,107 @@ plotRoc <- function(evaluation,
 #'
 #' @export
 plotDecisionCurves <- function(evaluation,
+                               impactWeighting = "time",
+                               pickOptimalAlpha = FALSE,
                                labels = NULL,
                                alphas = NULL,
                                fileName = NULL) {
-  if (is.null(labels)) {
-    labels <- unique(evaluation$label)
+  # temp = evaluation
+  # alphas <- sort(unique(evaluation$alpha))[c(1, 3, 7, 10)]
+  if (!is.null(labels)) {
+    evaluation <- evaluation %>%
+      filter(.data$label %in% labels)
   }
-
-  if (is.null(alphas)) {
-    alphas <- unique(evaluation$alpha)
+  if (!is.null(alphas)) {
+    evaluation <- evaluation %>%
+      filter(.data$alpha %in% alphas)
   }
-  # evaluation %>%
-  #   filter(label == "Calibrated MaxSPRT") %>%
-  #   mutate(p = 1 - (.data$alpha / nExposureOutcomes)) %>%
-  #   mutate(odds = p / (1-p))
-
+  if (impactWeighting == "none") {
+    evaluation <- evaluation %>%
+      mutate(
+        tp = .data$countTp,
+        fp = .data$countFp,
+        tn = .data$countTn,
+        fn = .data$countFn
+      )
+  } else if (impactWeighting == "time") {
+    evaluation <- evaluation %>%
+      mutate(
+        tp = .data$timeTp,
+        fp = .data$timeFp,
+        tn = .data$timeTn,
+        fn = .data$timeFn
+      )
+  } else if (impactWeighting == "exposed") {
+    evaluation <- evaluation %>%
+      mutate(
+        tp = .data$exposedTp,
+        fp = .data$exposedFp,
+        tn = .data$exposedTn,
+        fn = .data$exposedFn
+      )
+  } else if (impactWeighting == "exposed cases") {
+    evaluation <- evaluation %>%
+      mutate(
+        tp = .data$exposedCasesTp,
+        fp = .data$exposedCasesFp,
+        tn = .data$exposedCasesTn,
+        fn = .data$exposedCasesFn
+      )
+  } else if (impactWeighting == "attributable cases") {
+    evaluation <- evaluation %>%
+      mutate(
+        tp = .data$attributableRiskTp,
+        fp = .data$attributableRiskFp,
+        tn = .data$attributableRiskTn,
+        fn = .data$attributableRiskFn
+      )
+  }
   nExposureOutcomes <- evaluation %>%
     mutate(n = .data$tp + .data$fp + .data$tn + .data$fn) %>%
     summarize(n = median(n)) %>%
     pull()
-  # plotData <- evaluation %>%
-  #   filter(.data$iteration == 1) %>%
-  #   mutate(p = 1 - (.data$alpha / nExposureOutcomes)) %>%
-  #   mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p)))
   plotData <- evaluation %>%
-    filter(.data$iteration == 1, abs(.data$alpha - 5) < 0.01) %>%
+    select("label", "tp", "fp", "tn", "fn", "alpha") %>%
     cross_join(tibble(p = seq(0, 1, by = 0.01))) %>%
-    mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p)))
-  maxBenefit <- max(plotData$netBenefit, na.rm = TRUE)
-  plot <- ggplot2::ggplot(plotData, ggplot2::aes(x = p, y = .data$netBenefit, group = .data$label, color = .data$label)) +
-    ggplot2::geom_line(size = 2) +
+    mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p))) %>%
+    group_by(.data$label, .data$p, .data$alpha) %>%
+    summarise(
+      lb = quantile(.data$netBenefit, 0.25, na.rm = TRUE),
+      ub = quantile(.data$netBenefit, 0.75, na.rm = TRUE),
+      netBenefit = median(.data$netBenefit),
+      .groups = "drop"
+    )
+  if (pickOptimalAlpha) {
+    plotData <- plotData %>%
+      group_by(.data$p, .data$label) %>%
+      filter(.data$netBenefit == max(.data$netBenefit)) %>%
+      ungroup() %>%
+      mutate(alpha = 0)
+  }
+
+  maxBenefit <- max(plotData$ub, na.rm = TRUE)
+  plot <- ggplot2::ggplot(plotData, ggplot2::aes(x = .data$p,
+                                                 y = .data$netBenefit,
+                                                 ymin = .data$lb,
+                                                 ymax = .data$ub,
+                                                 group = .data$label,
+                                                 color = .data$label,
+                                                 fill = .data$label)) +
+    ggplot2::geom_ribbon(color = rgb(0, 0, 0, alpha = 0), alpha = 0.4) +
+    ggplot2::geom_line(alpha = 0.8, size = 2) +
+    ggplot2::scale_color_manual(values = c(wesanderson::wes_palette("Darjeeling1", 5), gray(0.5))) +
+    ggplot2::scale_fill_manual(values = c(wesanderson::wes_palette("Darjeeling1", 5), gray(0.5))) +
+    ggplot2::coord_cartesian(ylim = c(-maxBenefit/5, maxBenefit)) +
     ggplot2::scale_x_continuous("P") +
-    ggplot2::scale_y_continuous("Net benefit", limits = c(-maxBenefit/5, maxBenefit))
+    ggplot2::scale_y_continuous("Net benefit") +
+    ggplot2::facet_grid(.data$alpha ~ .)
   plot
   if (!is.null(fileName)) {
     ggplot2::ggsave(plot = plot,
                     filename = fileName,
-                    width = 2 + length(unique(plotData$alpha)) * 0.5,
-                    height = 1.5 + length(unique(plotData$label)) * 1.4,
+                    width = 8,
+                    height = 8,
                     dpi =  200)
   }
 

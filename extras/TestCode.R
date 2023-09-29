@@ -91,7 +91,39 @@ plotRoc(
 
 plotDecisionCurves(
   evaluation = evaluation,
-  fileName = file.path(signalsFolder, "decisionCurves_CalibratedMaxSprt.png")
+  impactWeighting = "none",
+  fileName = file.path(signalsFolder, "decisionCurves.png")
 )
-
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "time",
+  fileName = file.path(signalsFolder, "decisionCurvesTime.png")
+)
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "exposed",
+  fileName = file.path(signalsFolder, "decisionCurvesExposed.png")
+)
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "exposed cases",
+  fileName = file.path(signalsFolder, "decisionCurveExposedCases.png")
+)
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "attributable cases",
+  fileName = file.path(signalsFolder, "decisionCurvesAttributable cases.png")
+)
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "none",
+  pickOptimalAlpha = TRUE,
+  fileName = file.path(signalsFolder, "decisionCurvesOpt.png")
+)
+plotDecisionCurves(
+  evaluation = evaluation,
+  impactWeighting = "time",
+  pickOptimalAlpha = TRUE,
+  fileName = file.path(signalsFolder, "decisionCurvesTimeOpt.png")
+)
 
