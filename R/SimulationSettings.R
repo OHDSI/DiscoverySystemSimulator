@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -14,15 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 #' Create exposure-outcome settings
 #'
 #' @details
 #' For each database, an effect size is sampled from the relative risk distribution. The relative risk
 #' indicates the increase in the risk during the risk window.
 #'
-#' @param nTarget        Number of subjects in the target population.
-#' @param nComparator    Number of subjects in the comparator (counterfactual) population.
+#' @param nTargetFirstLook   Number of subjects in the target population at the start (look 1).
+#' @param nTargetNextLooks Number of subjects observed in subsequent looks.
+#' @param nTargetNextLooksDelta Change to the target delta at each look.
+#' @param nComparatorMultiplier Number of subjects in the comparator (counterfactual) population
+#'                              Relative to the target population.
 #' @param backgroundRate Poisson background rate (per day) of the outcome.
 #' @param logRrMean      The mean of the log relative distribution across databases.
 #' @param logRrSd        The standard deviation (SD) of the log relative distribution across databases.
@@ -33,8 +35,10 @@
 #' A settings object
 #'
 #' @export
-createExposureOutcomeSettings <- function(nTarget = 100,
-                                          nComparator = nTarget * 2,
+createExposureOutcomeSettings <- function(nTargetFirstLook = 100,
+                                          nTargetNextLooks = 10,
+                                          nTargetNextLooksDelta = 1,
+                                          nComparatorMultiplier = 2,
                                           backgroundRate = 0.0001,
                                           logRrMean = 0,
                                           logRrSd = 0,
@@ -45,6 +49,27 @@ createExposureOutcomeSettings <- function(nTarget = 100,
     settings[[name]] <- get(name)
   }
   return(settings)
+}
+
+#' Compute number of subjects in target population at a specific look.
+#'
+#' @param nTargetFirstLook   Number of subjects in the target population at the start (look 1).
+#' @param nTargetNextLooks Number of subjects observed in subsequent looks.
+#' @param nTargetNextLooksDelta Change to the target delta at each look.
+#' @param lookId            The look at which to compute the number of subjects.
+#'
+#' @return
+#' The number of subjects in the target population at look `lookId`.
+#' @export
+computeNtarget <- function(lookId,
+                           nTargetFirstLook,
+                           nTargetNextLooks,
+                           nTargetNextLooksDelta) {
+  if (lookId == 1) {
+    return(nTargetFirstLook)
+  } else {
+    return(nTargetNextLooks + nTargetNextLooksDelta * (lookId - 2))
+  }
 }
 
 #' Create time-at-risk settings
@@ -112,26 +137,26 @@ createDatabaseSettings <- function(sampleSizeMultiplier = 1) {
 #'
 #' @export
 createSimulationSettings <- function(exposureOutcomeSettings = c(
-                                       lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
-                                       lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
-                                     ),
-                                     timeAtRiskSettings = list(
-                                       createTimeAtRiskSettings(0, 7),
-                                       createTimeAtRiskSettings(0, 21),
-                                       createTimeAtRiskSettings(0, 42),
-                                       createTimeAtRiskSettings(0, 90)
-                                     ),
-                                     methodSettings = list(
-                                       createMethodSettings(0.05, 0.05),
-                                       createMethodSettings(0.10, 0.10),
-                                       createMethodSettings(0.20, 0.20)
-                                     ),
-                                     databaseSettings = list(
-                                       createDatabaseSettings(1.0),
-                                       createDatabaseSettings(0.5),
-                                       createDatabaseSettings(2.0)
-                                     ),
-                                     looks = 10) {
+  lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
+  lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
+),
+timeAtRiskSettings = list(
+  createTimeAtRiskSettings(0, 7),
+  createTimeAtRiskSettings(0, 21),
+  createTimeAtRiskSettings(0, 42),
+  createTimeAtRiskSettings(0, 90)
+),
+methodSettings = list(
+  createMethodSettings(0.05, 0.05),
+  createMethodSettings(0.10, 0.10),
+  createMethodSettings(0.20, 0.20)
+),
+databaseSettings = list(
+  createDatabaseSettings(1.0),
+  createDatabaseSettings(0.5),
+  createDatabaseSettings(2.0)
+),
+looks = 10) {
   settings <- list()
   for (name in names(formals(createSimulationSettings))) {
     settings[[name]] <- get(name)

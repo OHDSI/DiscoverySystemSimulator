@@ -7,8 +7,7 @@
 runDiscoverySystem(
   simulation = simulateDiscoverySystem(),
   discoverySystemSettings = createDiscoverySystemSettings(),
-  cacheFolder = NULL,
-  cvCacheFile = NULL
+  cacheFolder = NULL
 )
 }
 \arguments{
@@ -19,9 +18,6 @@ runDiscoverySystem(
 \item{cacheFolder}{Optionally, a folder where intermediate artifacts (e.g. fitted
 systematic error distributions) can be cached. If \code{NULL}, no
 caching is performed.}
-
-\item{cvCacheFile}{Optionally, the name of a global cache file for critical values.
-If \code{NULL}, no caching is performed.}
 }
 \value{
 Returns a tibble with signal flags for each row in the simulation.

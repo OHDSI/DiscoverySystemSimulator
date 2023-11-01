@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -435,11 +435,16 @@ plotRoc <- function(evaluation,
 plotDecisionCurves <- function(evaluation,
                                impactWeighting = "time",
                                pickOptimalAlpha = FALSE,
+                               showQuartiles = TRUE,
                                labels = NULL,
                                alphas = NULL,
                                fileName = NULL) {
   # temp = evaluation
   # alphas <- sort(unique(evaluation$alpha))[c(1, 3, 7, 10)]
+  if (!showQuartiles) {
+    evaluation <- evaluation %>%
+      filter(.data$iteration == min(.data$iteration))
+  }
   if (!is.null(labels)) {
     evaluation <- evaluation %>%
       filter(.data$label %in% labels)
@@ -497,6 +502,7 @@ plotDecisionCurves <- function(evaluation,
     select("label", "tp", "fp", "tn", "fn", "alpha") %>%
     cross_join(tibble(p = seq(0, 1, by = 0.01))) %>%
     mutate(netBenefit = (.data$tp / nExposureOutcomes) - (.data$fp / nExposureOutcomes) * (p / (1-p))) %>%
+    mutate(alpha = sprintf("alpha = %0.2f", .data$alpha)) %>%
     group_by(.data$label, .data$p, .data$alpha) %>%
     summarise(
       lb = quantile(.data$netBenefit, 0.25, na.rm = TRUE),
@@ -519,23 +525,33 @@ plotDecisionCurves <- function(evaluation,
                                                  ymax = .data$ub,
                                                  group = .data$label,
                                                  color = .data$label,
-                                                 fill = .data$label)) +
-    ggplot2::geom_ribbon(color = rgb(0, 0, 0, alpha = 0), alpha = 0.4) +
-    ggplot2::geom_line(alpha = 0.8, size = 2) +
+                                                 fill = .data$label))
+  if (showQuartiles) {
+    plot <- plot +
+      ggplot2::geom_ribbon(color = rgb(0, 0, 0, alpha = 0), alpha = 0.4)
+  }
+  plot <- plot +
+    ggplot2::geom_line(alpha = 0.8, size = 0.5) +
     ggplot2::scale_color_manual(values = c(wesanderson::wes_palette("Darjeeling1", 5), gray(0.5))) +
     ggplot2::scale_fill_manual(values = c(wesanderson::wes_palette("Darjeeling1", 5), gray(0.5))) +
     ggplot2::coord_cartesian(ylim = c(-maxBenefit/5, maxBenefit)) +
     ggplot2::scale_x_continuous("P") +
     ggplot2::scale_y_continuous("Net benefit") +
-    ggplot2::facet_grid(.data$alpha ~ .)
-  plot
-  if (!is.null(fileName)) {
-    ggplot2::ggsave(plot = plot,
-                    filename = fileName,
-                    width = 8,
-                    height = 8,
-                    dpi =  200)
-  }
+    ggplot2::theme(legend.title = ggplot2::element_blank())
 
+  if (length(unique(plotData$alpha)) > 1) {
+    plot <- plot +
+      ggplot2::facet_wrap("alpha")
+      # ggplot2::facet_grid(.data$alpha ~ .)
+
+  }
+  if (!is.null(fileName)) {
+    ggplot2::ggsave(filename = fileName,
+                    plot = plot,
+                    width = 5,
+                    # height = 1 + 2 * length(unique(plotData$alpha)),
+                    height = 3,
+                    dpi = 200)
+  }
   return(plot)
 }

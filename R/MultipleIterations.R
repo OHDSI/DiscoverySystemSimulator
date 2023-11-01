@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -74,8 +74,6 @@ runIteration <- function(iteration, simulationSettings, simulationsFolder) {
 #'                           be lower than the number of CPU cores.
 #' @param useCaching         Cache intermediate artifacts in the `simulationsFolder`? This will
 #'                           greatly speed up subsequent runs.
-#' @param cvCacheFile             Optionally, the name of a global cache file for critical values.
-#'                                If `NULL`, no caching is performed.
 #'
 #' @return
 #' This function does not return anything, but writes all output to the specified
@@ -86,12 +84,8 @@ runDiscoverySystemIterations <- function(simulationsFolder,
                                          signalsFolder,
                                          discoverySystemSettings = createDiscoverySystemSettings(),
                                          threads = 4,
-                                         useCaching = TRUE,
-                                         cvCacheFile = NULL) {
-  if (is.null(cvCacheFile)) {
-    warning("The cvCacheFile argument is not set.")
-  }
-  startTime <- Sys.time()
+                                         useCaching = TRUE) {
+   startTime <- Sys.time()
   if (!dir.exists(signalsFolder)) {
     message(sprintf("Folder '%s' does not exist, so creating it.", signalsFolder))
     dir.create(signalsFolder, recursive = TRUE)
@@ -112,8 +106,7 @@ runDiscoverySystemIterations <- function(simulationsFolder,
                                         discoverySystemSettings = discoverySystemSettings,
                                         simulationsFolder = simulationsFolder,
                                         signalsFolder = signalsFolder,
-                                        useCaching = useCaching,
-                                        cvCacheFile = cvCacheFile)
+                                        useCaching = useCaching)
 
   delta <- Sys.time() - startTime
   message(paste("Running discovery system took", signif(delta, 3), attr(delta, "units")))
@@ -124,8 +117,7 @@ runDiscoverySystemIteration <- function(simulationFile,
                                         discoverySystemSettings,
                                         simulationsFolder,
                                         signalsFolder,
-                                        useCaching,
-                                        cvCacheFile) {
+                                        useCaching) {
   signalsFile <- gsub("Simulation_", "Signals_", simulationFile)
 
   if (!file.exists(file.path(signalsFolder, signalsFile))) {
@@ -138,8 +130,7 @@ runDiscoverySystemIteration <- function(simulationFile,
     }
     signals <- runDiscoverySystem(simulation = simulation,
                                   discoverySystemSettings = discoverySystemSettings,
-                                  cacheFolder = cacheFolder,
-                                  cvCacheFile = cvCacheFile)
+                                  cacheFolder = cacheFolder)
     saveRDS(signals, file.path(signalsFolder, signalsFile))
     simulationSettingsFile <- file.path(signalsFolder, "simulationSettings.rds")
     if (!file.exists(simulationSettingsFile)) {

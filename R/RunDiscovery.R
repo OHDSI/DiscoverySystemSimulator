@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -47,8 +47,6 @@ createDiscoverySystemSettings <- function(alpha = exp(seq(log(0.05), log(5), len
 #' @param cacheFolder             Optionally, a folder where intermediate artifacts (e.g. fitted
 #'                                systematic error distributions) can be cached. If `NULL`, no
 #'                                caching is performed.
-#' @param cvCacheFile             Optionally, the name of a global cache file for critical values.
-#'                                If `NULL`, no caching is performed.
 #'
 #' @return
 #' Returns a tibble with signal flags for each row in the simulation.
@@ -56,8 +54,7 @@ createDiscoverySystemSettings <- function(alpha = exp(seq(log(0.05), log(5), len
 #' @export
 runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
                                discoverySystemSettings = createDiscoverySystemSettings(),
-                               cacheFolder = NULL,
-                               cvCacheFile = NULL) {
+                               cacheFolder = NULL) {
   if (!is.null(cacheFolder) && !dir.exists(cacheFolder)) {
     message(sprintf("Folder '%s' does not exist, so creating it.", cacheFolder))
     dir.create(cacheFolder, recursive = TRUE)
@@ -89,7 +86,7 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
     group_by(.data$exposureOutcomeId) %>%
     distinct(.data$databaseId) %>%
     count(name = "nDatabases") %>%
-    inner_join(alphaPerExposureOutcome, by = character()) %>%
+    cross_join(alphaPerExposureOutcome) %>%
     mutate(alphaPerDatabase = .data$alphaPerExposureOutcome / .data$nDatabases)
 
   # Divide alpha over time at risks (Bonferroni)
@@ -97,7 +94,7 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
     group_by(.data$exposureOutcomeId, .data$databaseId) %>%
     distinct(.data$timeAtRiskId) %>%
     count(name = "nTars") %>%
-    inner_join(alphaPerDatabase, by = "exposureOutcomeId") %>%
+    inner_join(alphaPerDatabase, by = "exposureOutcomeId", relationship = "many-to-many") %>%
     mutate(alphaPerTar = .data$alphaPerDatabase / .data$nTars) %>%
     ungroup()
 
@@ -106,7 +103,7 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
     group_by(.data$exposureOutcomeId, .data$databaseId, .data$timeAtRiskId) %>%
     distinct(.data$methodId) %>%
     count(name = "nMethods") %>%
-    inner_join(alphaPerTar, by = c("exposureOutcomeId", "databaseId")) %>%
+    inner_join(alphaPerTar, by = c("exposureOutcomeId", "databaseId"), relationship = "many-to-many") %>%
     mutate(alphaPerMethod = .data$alphaPerTar / .data$nMethods) %>%
     ungroup()
 
@@ -114,63 +111,60 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
   signals <- performCalibratedMaxSprt(simulation = simulation,
                                       alphaPerMethod = alphaPerMethod,
                                       discoverySystemSettings = discoverySystemSettings,
-                                      cacheFolder = cacheFolder,
-                                      cvCacheFile = cvCacheFile)
+                                      cacheFolder = cacheFolder)
   return(signals)
 }
 
 performCalibratedMaxSprt <- function(simulation,
                                      alphaPerMethod,
                                      discoverySystemSettings,
-                                     cacheFolder,
-                                     cvCacheFile) {
+                                     cacheFolder) {
   distributions <- fitSystematicErrorDistributions(simulation, cacheFolder)
 
   calibratedPs <- computeCalibratedPs(simulation, distributions)
 
-  criticalValues <- computeCriticalValues(simulation, alphaPerMethod, distributions, cvCacheFile)
+  criticalValues <- computeCriticalValues(simulation = simulation,
+                                          alphaPerMethod = alphaPerMethod,
+                                          distributions = distributions,
+                                          cacheFolder = cacheFolder)
 
   data <- calibratedPs %>%
-    select(.data$methodId,
-           .data$timeAtRiskId,
-           .data$exposureOutcomeId,
-           .data$databaseId,
-           .data$lookId,
-           .data$p,
-           .data$calibratedP,
-           .data$llr,
-           .data$logRr,
-           .data$seLogRr,
-           .data$profileIdx) %>%
-    inner_join(criticalValues, by = c("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "lookId")) %>%
-    inner_join(distributions, by = c("methodId", "timeAtRiskId", "databaseId", "lookId")) %>%
+    select("methodId",
+           "timeAtRiskId",
+           "exposureOutcomeId",
+           "databaseId",
+           "lookId",
+           "p",
+           "calibratedP",
+           "llr",
+           "logRr",
+           "seLogRr",
+           "profileIdx") %>%
+    inner_join(criticalValues, by = c("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId"), relationship = "many-to-many") %>%
+    inner_join(distributions, by = c("methodId", "timeAtRiskId", "databaseId", "lookId"), relationship = "many-to-many") %>%
     inner_join(alphaPerMethod, by = c("timeAtRiskId", "exposureOutcomeId", "databaseId", "alphaPerMethod"))
 
   message("Computing signals")
   # row <- split(data, seq_len(nrow(data)))[[1]]
-  computeSignals <- function(row) {
-    row %>%
-      mutate(signalMaxSprt = .data$llr > .data$cv,
-             signalCalibratedMaxSprt = .data$llr > .data$calibratedCv,
-             signalP = if_else(is.na(.data$p), FALSE, .data$p < row$alphaPerMethod),
-             signalCalibratedP = if_else(is.na(.data$calibratedP), FALSE, .data$calibratedP < row$alphaPerMethod)) %>%
-      return()
-  }
-  signals <- map_dfr(split(data, seq_len(nrow(data))), computeSignals)
+  signals <- data %>%
+    mutate(signalMaxSprt = .data$llr > .data$cv,
+           signalCalibratedMaxSprt = .data$llr > .data$calibratedCv,
+           signalP = if_else(is.na(.data$p), FALSE, .data$p < .data$alphaPerMethod),
+           signalCalibratedP = if_else(is.na(.data$calibratedP), FALSE, .data$calibratedP < .data$alphaPerMethod))
 
   signals <- signals %>%
-    select(.data$methodId,
-           .data$timeAtRiskId,
-           .data$exposureOutcomeId,
-           .data$databaseId,
-           .data$lookId,
-           .data$alpha,
-           .data$signalMaxSprt,
-           .data$signalCalibratedMaxSprt,
-           .data$signalP,
-           .data$cvAlpha,
-           .data$signalCalibratedP,
-           .data$calibratedCvAlpha) %>%
+    select("methodId",
+           "timeAtRiskId",
+           "exposureOutcomeId",
+           "databaseId",
+           "lookId",
+           "alpha",
+           "signalMaxSprt",
+           "signalCalibratedMaxSprt",
+           "signalP",
+           "cvAlpha",
+           "signalCalibratedP",
+           "calibratedCvAlpha") %>%
     dropNonStandardAttributes()
   return(signals)
 }
@@ -190,8 +184,7 @@ computeCalibratedPs <- function(simulation, distributions) {
       return()
   }
   results <- map_dfr(groups, calibrateP) %>%
-    select(-.data$systematicErrorMean,
-           -.data$systematicErrorSd)
+    select(-"systematicErrorMean", -"systematicErrorSd")
   return(results)
 }
 
@@ -210,6 +203,7 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
   }
 
   if (cache && file.exists(cacheFile)) {
+    message("Loading systematic error distributions from ", cacheFile)
     distributions <- readRDS(cacheFile)
   } else {
     # Using all simulated exposure-outcome pairs with null effect as negative controls:
@@ -235,11 +229,12 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
              systematicErrorSd = distribution[2]) %>%
         return()
     }
-    distributions <- map_dfr(split(simulation, paste(simulation$databaseId,
-                                                     simulation$timeAtRiskId,
-                                                     simulation$methodId,
-                                                     simulation$lookId)),
-                             fitDistribution)
+    distributions <- map(split(simulation, paste(simulation$databaseId,
+                                                 simulation$timeAtRiskId,
+                                                 simulation$methodId,
+                                                 simulation$lookId)),
+                         fitDistribution) %>%
+      list_rbind()
     if (cache) {
       saveRDS(distributions, cacheFile)
     }
@@ -247,65 +242,110 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
   return(distributions)
 }
 
-computeCriticalValues <- function(simulation, alphaPerMethod, distributions, cvCacheFile) {
-  simulationSettings <- attr(simulation, "simulationSettings")
-  exposureOutcomeSettings <- map_dfr(simulationSettings$exposureOutcomeSettings,
-                                     function(x) return(tibble(z = x$nComparator / x$nTarget,
-                                                               expectedEventsPerDay = x$backgroundRate * (x$nComparator + x$nTarget)))) %>%
-    mutate(exposureOutcomeId = row_number())
-  databaseSettings <- map_dfr(simulationSettings$databaseSettings,
-                              function(x) return(tibble(sampleSizeMultiplier = x$sampleSizeMultiplier))) %>%
-    mutate(databaseId = row_number())
-  timeAtRiskSettings <- map_dfr(simulationSettings$timeAtRiskSettings,
-                                function(x) return(tibble(start = x$start, end = x$end))) %>%
-    mutate(timeAtRiskId  = row_number())
-  values <- alphaPerMethod %>%
-    inner_join(exposureOutcomeSettings, by = "exposureOutcomeId") %>%
-    inner_join(databaseSettings, by = "databaseId") %>%
-    inner_join(timeAtRiskSettings, by = "timeAtRiskId") %>%
-    inner_join(distributions, by = c("databaseId", "timeAtRiskId")) %>%
-    mutate(expectedEventsPerLook = .data$expectedEventsPerDay * .data$sampleSizeMultiplier * (.data$end - .data$start + 1),
-           looks = simulationSettings$looks)
-  uniqueValuesForCv <- values %>%
-    distinct(.data$expectedEventsPerLook, .data$looks, .data$z, alpha = .data$alphaPerMethod) %>%
-    mutate(systematicErrorMean = 0,
-           systematicErrorSd = 0)
-  uniqueValuesForCalibratedCv <- values %>%
-    distinct(.data$expectedEventsPerLook, .data$looks, .data$z, alpha = .data$alphaPerMethod, .data$systematicErrorMean , .data$systematicErrorSd)
-  cvsToCompute <- bind_rows(uniqueValuesForCalibratedCv, uniqueValuesForCv) %>%
-    mutate(model = "binomial")
+computeExposureAndExpectedCounts <- function(exposureOutcomeId, simulationSettings) {
+  exposureOutcomeSettings <- simulationSettings$exposureOutcomeSettings[[exposureOutcomeId]]
+  lookIds <- seq_len(simulationSettings$looks)
+  nTarget <- map_dbl(lookIds,
+                     computeNtarget,
+                     nTargetFirstLook = exposureOutcomeSettings$nTargetFirstLook,
+                     nTargetNextLooks = exposureOutcomeSettings$nTargetNextLooks,
+                     nTargetNextLooksDelta = exposureOutcomeSettings$nTargetNextLooksDelta)
+  nComparator <- nTarget * exposureOutcomeSettings$nComparatorMultiplier
+  expectedEventsPerDay <- (nTarget + nComparator) * exposureOutcomeSettings$backgroundRate
+  return(tibble(exposureOutcomeId = exposureOutcomeId,
+                lookId = lookIds,
+                z = nComparator / nTarget,
+                expectedEventsPerDay))
+}
 
+computeCriticalValues <- function(simulation, alphaPerMethod, distributions, cacheFolder) {
+  if (!is.null(cacheFolder)) {
+    cacheFile <- file.path(cacheFolder, "CriticalValues.rds")
+    cache <- TRUE
+  } else {
+    cache <- FALSE
+  }
 
-  message("Computing critical values")
-  cvs <- computeCriticalValuesWithCache(cvsToCompute, cvCacheFile)
+  if (cache && file.exists(cacheFile)) {
+    message("Loading critical values from ", cacheFile)
+    criticalValues <- readRDS(cacheFile)
+  } else {
+    simulationSettings <- attr(simulation, "simulationSettings")
+    exposureOutcomeSettings <- map(seq_along(simulationSettings$exposureOutcomeSettings),
+                                   computeExposureAndExpectedCounts,
+                                   simulationSettings = simulationSettings) %>%
+      list_rbind()
+    databaseSettings <- map(simulationSettings$databaseSettings,
+                            function(x) return(tibble(sampleSizeMultiplier = x$sampleSizeMultiplier)))  %>%
+      list_rbind() %>%
+      mutate(databaseId = row_number())
+    timeAtRiskSettings <- map(simulationSettings$timeAtRiskSettings,
+                              function(x) return(tibble(start = x$start, end = x$end))) %>%
+      list_rbind() %>%
+      mutate(timeAtRiskId  = row_number())
+    valuesForCalibratedCv <- alphaPerMethod %>%
+      inner_join(exposureOutcomeSettings, by = "exposureOutcomeId", relationship = "many-to-many") %>%
+      inner_join(databaseSettings, by = "databaseId", relationship = "many-to-many") %>%
+      inner_join(timeAtRiskSettings, by = "timeAtRiskId", relationship = "many-to-many") %>%
+      inner_join(distributions, by = c("databaseId", "timeAtRiskId", "lookId"), relationship = "many-to-many") %>%
+      mutate(expectedEvents = .data$expectedEventsPerDay * .data$sampleSizeMultiplier * (.data$end - .data$start + 1)) %>%
+      select(
+        "exposureOutcomeId",
+        "databaseId",
+        "timeAtRiskId",
+        "methodId",
+        "lookId",
+        "alphaPerMethod",
+        "z",
+        "expectedEvents",
+        "systematicErrorMean",
+        "systematicErrorSd"
+      )
+    valuesForUncalibratedCv <- valuesForCalibratedCv %>%
+      distinct(.data$exposureOutcomeId,
+               .data$databaseId,
+               .data$timeAtRiskId,
+               .data$lookId,
+               .data$alphaPerMethod,
+               .data$z,
+               .data$expectedEvents) %>%
+      mutate(systematicErrorMean = 0,
+             systematicErrorSd = 0)
 
-  uncalibratedCvs <- uniqueValuesForCv %>%
-    inner_join(cvs, by = c("alpha", "z", "expectedEventsPerLook", "looks", "systematicErrorMean", "systematicErrorSd")) %>%
-    select(-.data$systematicErrorMean,
-           -.data$systematicErrorSd,
-           -.data$model) %>%
-    rename(alphaPerMethod = .data$alpha)
-
-  calibratedCvs <- uniqueValuesForCalibratedCv %>%
-    inner_join(cvs, by = c("alpha", "z", "systematicErrorMean", "systematicErrorSd", "expectedEventsPerLook", "looks"))  %>%
-    select(-.data$model) %>%
-    rename(calibratedCv = .data$cv,
-           calibratedCvAlpha = .data$cvAlpha) %>%
-    rename(alphaPerMethod = .data$alpha)
-
-  criticalValues <- values %>%
-    inner_join(uncalibratedCvs, by = c("alphaPerMethod", "z", "expectedEventsPerLook", "looks")) %>%
-    inner_join(calibratedCvs, by = c("alphaPerMethod", "z", "expectedEventsPerLook", "looks", "systematicErrorMean", "systematicErrorSd")) %>%
-    select(.data$exposureOutcomeId,
-           .data$databaseId,
-           .data$timeAtRiskId,
-           .data$methodId,
-           .data$lookId,
-           .data$alphaPerMethod,
-           .data$cv,
-           .data$cvAlpha,
-           .data$calibratedCv,
-           .data$calibratedCvAlpha)
-
+    message("Computing critical values")
+    groups <- valuesForCalibratedCv %>%
+      group_by(.data$exposureOutcomeId,
+               .data$databaseId,
+               .data$timeAtRiskId,
+               .data$methodId,
+               .data$alphaPerMethod) %>%
+      group_split()
+    # group <- valuesForCalibratedCv %>%
+    #   filter(.data$exposureOutcomeId == 69,
+    #          .data$databaseId == 3,
+    #          .data$timeAtRiskId == 4,
+    #          .data$methodId == 3,
+    #          abs(.data$alphaPerMethod - 0.00139) < 0.0001)
+    cvsForCalibratedCv <- map(groups, computeCv) %>%
+      list_rbind()
+    groups <- valuesForUncalibratedCv %>%
+      group_by(.data$exposureOutcomeId,
+               .data$databaseId,
+               .data$timeAtRiskId,
+               .data$alphaPerMethod) %>%
+      group_split()
+    cvsForUncalibratedCv <- map(groups, computeCv) %>%
+      list_rbind()
+    criticalValues <- cvsForCalibratedCv %>%
+      inner_join(
+        cvsForUncalibratedCv %>%
+          rename(calibratedCv = .data$cv,
+                 calibratedCvAlpha = .data$cvAlpha),
+        by = join_by("exposureOutcomeId", "databaseId", "timeAtRiskId", "alphaPerMethod")
+      )
+    if (cache) {
+      saveRDS(criticalValues, cacheFile)
+    }
+  }
   return(criticalValues)
 }

@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -14,99 +14,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-computeCriticalValuesWithCache <- function(cvsToCompute, cvCacheFile, threads = 1) {
-  results <- tibble()
-  useCache <- !is.null(cvCacheFile)
-  if (useCache) {
-    cache <- readCvCache(cvCacheFile)
-    if (!is.null(cache)) {
-      results <- cvsToCompute %>%
-        inner_join(cache, by = colnames(cvsToCompute))
-      cvsToCompute <- cvsToCompute %>%
-        anti_join(cache, by = colnames(cvsToCompute))
-    }
-  }
-
-  if (nrow(cvsToCompute) > 0) {
-    cluster <- ParallelLogger::makeCluster(threads)
-    newResults <- ParallelLogger::clusterApply(
-      cluster = cluster,
-      x = split(cvsToCompute, seq_len(nrow(cvsToCompute))),
-      fun = computeCv)
-    ParallelLogger::stopCluster(cluster)
-
-    newResults <- bind_rows(newResults)
-
-    if (useCache) {
-      appendToCvCache(newResults, cvCacheFile)
-    }
-    results <- bind_rows(results, newResults)
-  }
-  return(results)
-}
-
-# row <- cvsToCompute[1, ]
-computeCv <- function(row) {
-  events <- round(1:row$looks * row$expectedEventsPerLook)
-  if (length(events) > 1) {
-    events[2:length(events)] <- events[2:length(events)] - events[1:(length(events)-1)]
-    events <- events[events != 0]
-  }
+# group = groups[[361]]
+computeCv <- function(group) {
+  events <- group %>%
+    arrange(.data$lookId) %>%
+    mutate(expectedEvents = round(cumsum(expectedEvents))) %>%
+    pull(.data$expectedEvents)
+  events[2:length(events)] <- events[2:length(events)] - events[1:(length(events) - 1)]
+  events <- events[events != 0]
   if (length(events) == 0) {
     cv <- Inf
     cvAlpha <- 0
   } else {
+    row <- group %>%
+      filter(.data$lookId == max(.data$lookId))
     suppressMessages(
       cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
                                                     z = row$z,
                                                     minimumEvents = 1,
                                                     sampleSize = 1e6,
-                                                    alpha = row$alpha,
+                                                    alpha = row$alphaPerMethod,
                                                     nullMean = row$systematicErrorMean,
                                                     nullSd = row$systematicErrorSd)
     )
     cvAlpha <- attr(cv, "alpha")
   }
-  row$cv <- cv
-  row$cvAlpha <- cvAlpha
+  row <- row %>%
+    mutate(cv = cv,
+           cvAlpha = cvAlpha) %>%
+    select(-"lookId", -"z", -"expectedEvents", -"systematicErrorMean", -"systematicErrorSd")
   return(row)
-}
-
-readCvCache <- function(cvCacheFile) {
-  lockFile <- getLockFileName(cvCacheFile)
-  lock <- filelock::lock(lockFile, exclusive = FALSE, timeout = 30000)
-  on.exit(filelock::unlock(lock))
-  if (file.exists(cvCacheFile)) {
-    readRDS(cvCacheFile) %>%
-      return()
-  } else {
-    return(NULL)
-  }
-}
-
-appendToCvCache <- function(newResults, cvCacheFile) {
-  lockFile <- getLockFileName(cvCacheFile)
-  lock <- filelock::lock(lockFile, exclusive = TRUE, timeout = 30000)
-  on.exit(filelock::unlock(lock))
-  if (file.exists(cvCacheFile)) {
-    cache <- readRDS(cvCacheFile)
-
-    # Other process could have already added these while we were computing,
-    # so make sure to avoid duplicates:
-    cacheKeys <- cache %>%
-      select(-.data$cv,
-             -.data$cvAlpha)
-    newResults <- newResults %>%
-      anti_join(cacheKeys, by = colnames(cacheKeys))
-    if (nrow(newResults) > 0) {
-      cache <- bind_rows(cache, newResults)
-      saveRDS(cache, cvCacheFile)
-    }
-  } else {
-    saveRDS(newResults, cvCacheFile)
-  }
-}
-
-getLockFileName <- function(cvCacheFile) {
-  return(paste(cvCacheFile, "lock", sep = "."))
 }

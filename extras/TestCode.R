@@ -1,6 +1,6 @@
 library(DiscoverySystemSimulator)
 maxCores <- 25
-mainFolder <- "d:/DiscoverSytemSimulations"
+mainFolder <- "d:/DiscoverSytemSimulations_old"
 cvCacheFile <- file.path(mainFolder, "cvCache.rds")
 
 # Large test ------------------------------------------------------------------
@@ -55,6 +55,7 @@ runDiscoverySystemIterations(
 # Do evaluations ---------------------------------------------------------------
 evaluation <- evaluateIterations(signalsFolder)
 saveRDS(evaluation, file.path(signalsFolder, "evaluation.rds"))
+evaluation <- readRDS(file.path(signalsFolder, "evaluation.rds"))
 plotFalsePositiveNegatives(
   evaluation = evaluation,
   labels = "Calibrated MaxSPRT",
@@ -126,4 +127,44 @@ plotDecisionCurves(
   pickOptimalAlpha = TRUE,
   fileName = file.path(signalsFolder, "decisionCurvesTimeOpt.png")
 )
+
+alpha <- unique(evaluation$alpha)[6]
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "none",
+                   pickOptimalAlpha = FALSE,
+                   showQuartiles = FALSE,
+                   alphas = min(evaluation$alpha),
+                   fileName = file.path(signalsFolder, "decisionCurve1.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "none",
+                   pickOptimalAlpha = FALSE,
+                   showQuartiles = TRUE,
+                   alphas = min(evaluation$alpha),
+                   fileName = file.path(signalsFolder, "decisionCurve2.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "none",
+                   pickOptimalAlpha = FALSE,
+                   showQuartiles = TRUE,
+                   alphas = unique(evaluation$alpha)[c(1, 3, 7, 10)],
+                   fileName = file.path(signalsFolder, "decisionCurve3.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "none",
+                   pickOptimalAlpha = TRUE,
+                   showQuartiles = TRUE,
+                   fileName = file.path(signalsFolder, "decisionCurve4.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "time",
+                   pickOptimalAlpha = TRUE,
+                   showQuartiles = TRUE,
+                   fileName = file.path(signalsFolder, "decisionCurve5.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "exposed",
+                   pickOptimalAlpha = TRUE,
+                   showQuartiles = TRUE,
+                   fileName = file.path(signalsFolder, "decisionCurve6.png"))
+plotDecisionCurves(evaluation = evaluation,
+                   impactWeighting = "exposed cases",
+                   pickOptimalAlpha = TRUE,
+                   showQuartiles = TRUE,
+                   fileName = file.path(signalsFolder, "decisionCurve7.png"))
 

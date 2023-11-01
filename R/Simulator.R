@@ -1,4 +1,4 @@
-# Copyright 2022 Observational Health Data Sciences and Informatics
+# Copyright 2023 Observational Health Data Sciences and Informatics
 #
 # This file is part of DiscoverySystemSimulator
 #
@@ -32,12 +32,13 @@ simulateDiscoverySystem <- function(simulationSettings = createSimulationSetting
   systematicErrors <- sampleSystematicErrors(simulationSettings)
 
   message("Sampling counts")
-  counts <- map_dfr(1:length(simulationSettings$exposureOutcomeSettings),
+  counts <- map(seq_along(simulationSettings$exposureOutcomeSettings),
     simulateExposureOutcome,
     simulationSettings = simulationSettings,
     trueEffectSizes = trueEffectSizes,
     systematicErrors = systematicErrors
-  )
+  ) %>%
+    list_rbind()
 
   message("Computing estimates")
   estimates <- computeEstimates(counts)
@@ -64,7 +65,8 @@ sampleTrueEffectSizes <- function(simulationSettings) {
     ) %>% return()
   }
 
-  map_dfr(1:length(simulationSettings$exposureOutcomeSettings), sampleLogRrs) %>%
+  map(seq_along(simulationSettings$exposureOutcomeSettings), sampleLogRrs) %>%
+    list_rbind() %>%
     return()
 }
 
@@ -84,7 +86,8 @@ sampleSystematicErrors <- function(simulationSettings) {
     ) %>% return()
   }
 
-  map_dfr(1:length(simulationSettings$methodSettings), sampleSystematicError) %>%
+  map(seq_along(simulationSettings$methodSettings), sampleSystematicError) %>%
+    list_rbind() %>%
     return()
 }
 
@@ -115,7 +118,8 @@ computeEventsPerTar <- function(n, logRr, timeAtRiskSettings, exposureOutcomeSet
 }
 
 simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettings, trueEffectSizes, systematicErrors) {
-  timeAtRiskSettings <- map_dfr(simulationSettings$timeAtRiskSettings, function(x) x[c("start", "end")])
+  timeAtRiskSettings <- map(simulationSettings$timeAtRiskSettings, function(x) as_tibble(x[c("start", "end")])) %>%
+    list_rbind()
   timePerPerson <- timeAtRiskSettings$end - timeAtRiskSettings$start + 1
   exposureOutcomeSettings <- simulationSettings$exposureOutcomeSettings[[exposureOutcomeId]]
   databaseSettings <- simulationSettings$databaseSettings[[databaseId]]
@@ -123,8 +127,13 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
     filter(.data$exposureOutcomeId == !!exposureOutcomeId &
       .data$databaseId == !!databaseId) %>%
     pull(.data$logRr)
+  nTarget <- computeNtarget(lookId = lookId,
+                            nTargetFirstLook = exposureOutcomeSettings$nTargetFirstLook,
+                            nTargetNextLooks = exposureOutcomeSettings$nTargetNextLooks,
+                            nTargetNextLooksDelta = exposureOutcomeSettings$nTargetNextLooksDelta)
+  nComparator <- nTarget * exposureOutcomeSettings$nComparatorMultiplier
   targetEvents <- computeEventsPerTar(
-    n = exposureOutcomeSettings$nTarget * databaseSettings$sampleSizeMultiplier,
+    n = nTarget * databaseSettings$sampleSizeMultiplier,
     logRr = trueEffectSize,
     timeAtRiskSettings = timeAtRiskSettings,
     exposureOutcomeSettings = exposureOutcomeSettings
@@ -142,17 +151,18 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
       end = timeAtRiskSettings$end,
       targetEvents = targetEvents,
       comparatorEvents = computeEventsPerTar(
-        n = exposureOutcomeSettings$nComparator * databaseSettings$sampleSizeMultiplier,
+        n = nComparator * databaseSettings$sampleSizeMultiplier,
         logRr = -systematicError,
         timeAtRiskSettings = timeAtRiskSettings,
         exposureOutcomeSettings = exposureOutcomeSettings
       ),
-      targetTime = timePerPerson * exposureOutcomeSettings$nTarget * databaseSettings$sampleSizeMultiplier,
-      comparatorTime = timePerPerson * exposureOutcomeSettings$nComparator * databaseSettings$sampleSizeMultiplier
+      targetTime = timePerPerson * nTarget * databaseSettings$sampleSizeMultiplier,
+      comparatorTime = timePerPerson * nComparator * databaseSettings$sampleSizeMultiplier
     ) %>%
       return()
   }
-  counts <- map_dfr(1:length(simulationSettings$methodSettings), simulateMethod)
+  counts <- map(seq_along(simulationSettings$methodSettings), simulateMethod) %>%
+    list_rbind()
   counts %>%
     mutate(
       exposureOutcomeId = !!exposureOutcomeId,
@@ -163,14 +173,15 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
 }
 
 simulateDatabase <- function(databaseId, exposureOutcomeId, simulationSettings, trueEffectSizes, systematicErrors) {
-  counts <- map_dfr(1:simulationSettings$looks,
+  counts <- map(1:simulationSettings$looks,
     simulateLook,
     exposureOutcomeId = exposureOutcomeId,
     databaseId = databaseId,
     simulationSettings = simulationSettings,
     trueEffectSizes = trueEffectSizes,
     systematicErrors = systematicErrors
-  )
+  ) %>%
+    list_rbind()
   counts %>%
     arrange(.data$lookId) %>%
     group_by(.data$methodId, .data$timeAtRiskId) %>%
@@ -185,13 +196,14 @@ simulateDatabase <- function(databaseId, exposureOutcomeId, simulationSettings, 
 }
 
 simulateExposureOutcome <- function(exposureOutcomeId, simulationSettings, trueEffectSizes, systematicErrors) {
-  counts <- map_dfr(1:length(simulationSettings$databaseSettings),
+  counts <- map(seq_along(simulationSettings$databaseSettings),
     simulateDatabase,
     exposureOutcomeId = exposureOutcomeId,
     simulationSettings = simulationSettings,
     trueEffectSizes = trueEffectSizes,
     systematicErrors = systematicErrors
-  )
+  ) %>%
+    list_rbind()
   return(counts)
 }
 
@@ -211,7 +223,9 @@ computeEstimates <- function(counts) {
     logTime <- log(c(estimates$targetTime[i], estimates$comparatorTime[i]))
 
     cyclopsData <- Cyclops::createCyclopsData(y ~ x + offset(logTime), modelType = "pr")
-    fit <- Cyclops::fitCyclopsModel(cyclopsData)
+    suppressWarnings(
+      fit <- Cyclops::fitCyclopsModel(cyclopsData)
+    )
     logRr <- coef(fit)["x"]
     estimates$logRr[i] <- logRr
     ci <- confint(fit, parm = "x")

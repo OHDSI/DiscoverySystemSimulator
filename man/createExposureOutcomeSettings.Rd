@@ -5,8 +5,10 @@
 \title{Create exposure-outcome settings}
 \usage{
 createExposureOutcomeSettings(
-  nTarget = 100,
-  nComparator = nTarget * 2,
+  nTargetFirstLook = 100,
+  nTargetNextLooks = 10,
+  nTargetNextLooksDelta = 1,
+  nComparatorMultiplier = 2,
   backgroundRate = 1e-04,
   logRrMean = 0,
   logRrSd = 0,
@@ -15,9 +17,14 @@ createExposureOutcomeSettings(
 )
 }
 \arguments{
-\item{nTarget}{Number of subjects in the target population.}
+\item{nTargetFirstLook}{Number of subjects in the target population at the start (look 1).}
 
-\item{nComparator}{Number of subjects in the comparator (counterfactual) population.}
+\item{nTargetNextLooks}{Number of subjects observed in subsequent looks.}
+
+\item{nTargetNextLooksDelta}{Change to the target delta at each look.}
+
+\item{nComparatorMultiplier}{Number of subjects in the comparator (counterfactual) population
+Relative to the target population.}
 
 \item{backgroundRate}{Poisson background rate (per day) of the outcome.}
 
