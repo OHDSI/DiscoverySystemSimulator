@@ -43,7 +43,7 @@ doTransform <- function(signals) {
 }
 
 evaluateSignals <- function(signals, simulationSettings) {
-  signals <- doTransform(signals)
+  # signals <- doTransform(signals)
   signalAll <- tibble(
     exposureOutcomeId = seq_along(simulationSettings$exposureOutcomeSettings),
     label = "Signal all",
@@ -58,11 +58,11 @@ evaluateSignals <- function(signals, simulationSettings) {
   computePerAlphaMetrics <- function(group, simulationSettings) {
     group <- group %>%
       bind_rows(signalAll, signalNone)
-    # metrics <- computeConfusionMatrix(group, simulationSettings) %>%
-    #   left_join(computeAttributableRisk(group, simulationSettings), by = "label") %>%
-    #   mutate(alpha = group$alpha[1])
-    metrics <- computeAttributableRisk(group, simulationSettings) %>%
+    metrics <- computeConfusionMatrix(group, simulationSettings) %>%
+      left_join(computeAttributableRisk(group, simulationSettings), by = "label") %>%
       mutate(alpha = group$alpha[1])
+    # metrics <- computeAttributableRisk(group, simulationSettings) %>%
+    #   mutate(alpha = group$alpha[1])
   }
   perAlphaMetrics <- map_dfr(groups, computePerAlphaMetrics, simulationSettings = simulationSettings)
 

@@ -14,34 +14,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# group = groups[[361]]
+# group = groups[[1]]
 computeCv <- function(group) {
   events <- group %>%
+    tidyr::pivot_longer(names_to = "lookId", names_prefix = "look_", cols = starts_with("look_")) %>%
     arrange(.data$lookId) %>%
-    mutate(expectedEvents = round(cumsum(expectedEvents))) %>%
+    mutate(expectedEvents = round(cumsum(.data$value))) %>%
     pull(.data$expectedEvents)
-  events[2:length(events)] <- events[2:length(events)] - events[1:(length(events) - 1)]
+
+  if (length(events) > 1) {
+    events[2:length(events)] <- events[2:length(events)] - events[1:(length(events) - 1)]
+  }
   events <- events[events != 0]
   if (length(events) == 0) {
     cv <- Inf
     cvAlpha <- 0
   } else {
-    row <- group %>%
-      filter(.data$lookId == max(.data$lookId))
     suppressMessages(
       cv <- EmpiricalCalibration::computeCvBinomial(groupSizes = events,
-                                                    z = row$z,
+                                                    z = group$z,
                                                     minimumEvents = 1,
                                                     sampleSize = 1e6,
-                                                    alpha = row$alphaPerMethod,
-                                                    nullMean = row$systematicErrorMean,
-                                                    nullSd = row$systematicErrorSd)
+                                                    alpha = group$alphaPerDatabase,
+                                                    nullMean = group$systematicErrorMean,
+                                                    nullSd = group$systematicErrorSd)
     )
     cvAlpha <- attr(cv, "alpha")
   }
-  row <- row %>%
+  group <- group %>%
     mutate(cv = cv,
-           cvAlpha = cvAlpha) %>%
-    select(-"lookId", -"z", -"expectedEvents", -"systematicErrorMean", -"systematicErrorSd")
-  return(row)
+           cvAlpha = cvAlpha)
+  return(group)
 }
