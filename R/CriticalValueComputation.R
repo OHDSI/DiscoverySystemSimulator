@@ -35,7 +35,7 @@ computeCv <- function(group) {
                                                     z = group$z,
                                                     minimumEvents = 1,
                                                     sampleSize = 1e6,
-                                                    alpha = group$alphaPerDatabase,
+                                                    alpha = group$alphaLocal,
                                                     nullMean = group$systematicErrorMean,
                                                     nullSd = group$systematicErrorSd)
     )

@@ -77,64 +77,59 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
     simulation <- simulation %>%
       filter(!.data$methodId %in% discoverySystemSettings$methodIdsToIgnore)
   }
-
-  # Divide alpha over exposure-outcomes (Bonferroni)
   nExposureOutcomes <- simulation %>%
     distinct(.data$exposureOutcomeId) %>%
     count() %>%
     pull()
-
-  alphaPerExposureOutcome <- tibble(alpha = discoverySystemSettings$alpha,
-                                    alphaPerExposureOutcome = discoverySystemSettings$alpha / nExposureOutcomes)
-
-  # Divide alpha over time at risks (Bonferroni)
-  alphaPerTar <- simulation %>%
-    group_by(.data$exposureOutcomeId) %>%
+  nTars <- simulation %>%
     distinct(.data$timeAtRiskId) %>%
-    count(name = "nTars") %>%
-    cross_join(alphaPerExposureOutcome) %>%
-    mutate(alphaPerTar = .data$alphaPerExposureOutcome / .data$nTars) %>%
-    ungroup()
-
-  # Divide alpha over methods (Bonferroni)
-  alphaPerMethod <- simulation %>%
-    group_by(.data$exposureOutcomeId, .data$timeAtRiskId) %>%
+    count() %>%
+    pull()
+  nMethods <- simulation %>%
     distinct(.data$methodId) %>%
-    count(name = "nMethods") %>%
-    inner_join(alphaPerTar, by = c("exposureOutcomeId"), relationship = "many-to-many") %>%
-    mutate(alphaPerMethod = .data$alphaPerTar / .data$nMethods) %>%
-    ungroup()
-
-  # Divide alpha over databases (Bonferroni)
-  alphaPerDatabase <- simulation %>%
-    group_by(.data$exposureOutcomeId, .data$timeAtRiskId, .data$methodId) %>%
+    count() %>%
+    pull()
+  nDatabases <- simulation %>%
     distinct(.data$databaseId) %>%
-    count(name = "nDatabases") %>%
-    inner_join(alphaPerMethod, by = c("exposureOutcomeId", "timeAtRiskId"), relationship = "many-to-many") %>%
-    mutate(alphaPerDatabase = .data$alphaPerExposureOutcome / .data$nDatabases) %>%
-    cross_join(simulation %>%
-                 distinct(.data$databaseId))
+    count() %>%
+    pull()
+  alphaLocal <- tibble(alpha = discoverySystemSettings$alpha,
+                       alphaLocal = discoverySystemSettings$alpha / nExposureOutcomes / nTars / nMethods / nDatabases,
+                       alphaMetaAnalysis = discoverySystemSettings$alpha / nExposureOutcomes / nTars / nMethods)
+  if (discoverySystemSettings$useLocalP ||
+      discoverySystemSettings$useLocalCalibratedP ||
+      discoverySystemSettings$useMaxSprt ||
+      discoverySystemSettings$useCalibratedMaxSprt) {
+    signalsLocal <- computeLocalSignals(simulation = simulation,
+                                        alphaLocal = alphaLocal,
+                                        discoverySystemSettings = discoverySystemSettings,
+                                        cacheFolder = cacheFolder)
+  } else {
+    signalsLocal <- NULL
+  }
 
-  # Compute local signals (e.g. using local P or MaxSPRT)
-  signals <- computeLocalSignals(simulation = simulation,
-                                 alphaPerDatabase = alphaPerDatabase,
-                                 discoverySystemSettings = discoverySystemSettings,
-                                 cacheFolder = cacheFolder)
-  return(signals)
+  if (discoverySystemSettings$useMetaAnalysisP ||
+      discoverySystemSettings$useMetaAnalysisCalibratedP) {
+    signalsMetaAnalysis <- computeMetaAnlysisSignals(simulation = simulation,
+                                                     alphaLocal = alphaLocal,
+                                                     discoverySystemSettings = discoverySystemSettings,
+                                                     cacheFolder = cacheFolder)
+  } else {
+    signalsMetaAnalysis <- NULL
+  }
+  return(bind_rows(signalsLocal, signalsMetaAnalysis))
 }
 
 computeLocalSignals <- function(simulation,
-                                alphaPerDatabase,
+                                alphaLocal,
                                 discoverySystemSettings,
                                 cacheFolder) {
   estimates <- simulation %>%
     select("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "lookId", "p", "llr") %>%
-    inner_join(alphaPerDatabase %>%
-                 select( "methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "alpha", "alphaPerDatabase"),
-               by = c("methodId","timeAtRiskId", "exposureOutcomeId", "databaseId"), relationship = "many-to-many")
+    cross_join(alphaLocal)
   if (discoverySystemSettings$useLocalP) {
     estimates <- estimates %>%
-      mutate(signalP = if_else(is.na(.data$p), FALSE, .data$p < .data$alphaPerDatabase))
+      mutate(signalP = if_else(is.na(.data$p), FALSE, .data$p < .data$alphaLocal))
   }
   if (discoverySystemSettings$useCalibratedMaxSprt || discoverySystemSettings$useLocalCalibratedP) {
     distributions <- fitSystematicErrorDistributions(simulation, cacheFolder)
@@ -144,19 +139,19 @@ computeLocalSignals <- function(simulation,
         inner_join(calibratedPs %>%
                      select("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "lookId", "calibratedP"),
                    by = join_by(methodId, timeAtRiskId, exposureOutcomeId, databaseId, lookId)) %>%
-        mutate(signalCalibratedP = if_else(is.na(.data$calibratedP), FALSE, .data$calibratedP < .data$alphaPerDatabase))
+        mutate(signalCalibratedP = if_else(is.na(.data$calibratedP), FALSE, .data$calibratedP < .data$alphaLocal))
     }
   } else {
     distributions <- NULL
   }
   if (discoverySystemSettings$useMaxSprt || discoverySystemSettings$useCalibratedMaxSprt) {
     criticalValues <- computeCriticalValues(simulation = simulation,
-                                            alphaPerDatabase = alphaPerDatabase,
+                                            alphaLocal = alphaLocal,
                                             distributions = distributions,
                                             discoverySystemSettings = discoverySystemSettings,
                                             cacheFolder = cacheFolder)
     estimates <- estimates %>%
-      inner_join(criticalValues, by = join_by("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId", "alphaPerDatabase"))
+      inner_join(criticalValues, by = join_by("methodId", "timeAtRiskId", "exposureOutcomeId", "databaseId"))
     if (discoverySystemSettings$useMaxSprt) {
       estimates <- estimates %>%
         mutate(signalMaxSprt = .data$llr > .data$cv)
@@ -166,8 +161,13 @@ computeLocalSignals <- function(simulation,
         mutate(signalCalibratedMaxSprt = .data$llr > .data$calibratedCv)
     }
   }
+  signals <- squashSignals(estimates)
+  return(signals)
+}
+
+squashSignals <- function(signals) {
   # Convert so we have first look when method signals:
-  pivot <- estimates %>%
+  pivot <- signals %>%
     tidyr::pivot_longer(cols = starts_with("signal"),
                         names_to = "detectionMethod",
                         values_to = "signal") %>%
@@ -175,27 +175,19 @@ computeLocalSignals <- function(simulation,
       .data$detectionMethod == "signalCalibratedMaxSprt" ~ "Calibrated MaxSPRT",
       .data$detectionMethod == "signalCalibratedP" ~ "Calibrated P",
       .data$detectionMethod == "signalMaxSprt" ~ "MaxSPRT",
-      .data$detectionMethod == "signalP" ~ "P"
+      .data$detectionMethod == "signalP" ~ "P",
+      .data$detectionMethod == "signalMetaAnalysisP" ~ "Meta-analysis P",
+      .data$detectionMethod == "signalMetaAnalysisCalibratedP" ~ "Meta-analysis calibrated P"
     )) %>%
     select(-"detectionMethod")
   signals <- pivot %>%
     filter(.data$signal) %>%
     group_by(.data$exposureOutcomeId, .data$label, .data$alpha) %>%
-    summarize(lookId = min(.data$lookId), .groups = "drop")
+    summarize(lookId = min(.data$lookId, na.rm = TRUE), .groups = "drop")
   signals <- pivot %>%
     distinct(.data$exposureOutcomeId, .data$label, .data$alpha) %>%
     left_join(signals, by = join_by("exposureOutcomeId", "label", "alpha")) %>%
     mutate(lookId = if_else(is.na(.data$lookId), Inf, .data$lookId))
-
-  # signals <- estimates %>%
-  #   select("methodId",
-  #          "timeAtRiskId",
-  #          "exposureOutcomeId",
-  #          "databaseId",
-  #          "lookId",
-  #          "alpha",
-  #          starts_with("signal"),
-  #          ends_with("Alpha"))
   return(signals)
 }
 
@@ -224,14 +216,13 @@ dropNonStandardAttributes <- function(object) {
   return(object)
 }
 
-fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
+fitSystematicErrorDistributions <- function(simulation, cacheFolder, normalApproximation = FALSE) {
   if (!is.null(cacheFolder)) {
     cacheFile <- file.path(cacheFolder, "SystematicErrorDistributions.rds")
     cache <- TRUE
   } else {
     cache <- FALSE
   }
-
   if (cache && file.exists(cacheFile)) {
     message("Loading systematic error distributions from ", cacheFile)
     distributions <- readRDS(cacheFile)
@@ -244,13 +235,18 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder) {
     fitDistribution <- function(subset) {
       negativeControls <- subset %>%
         filter(.data$exposureOutcomeId %in% negativeControlIds)
-      # Option: could also fit using normal approximation on per-control likelihood
-      profiles <- attr(simulation, "profiles")[negativeControls$profileIdx]
-      profiles <- profiles %>%
-        discard(is.null)
-      suppressMessages(
-        distribution <- EmpiricalCalibration::fitNullNonNormalLl(profiles)
-      )
+      if (normalApproximation) {
+        suppressMessages(
+          distribution <- EmpiricalCalibration::fitNull(subset$logRr, subset$seLogRr)
+        )
+      } else {
+        profiles <- attr(simulation, "profiles")[negativeControls$profileIdx]
+        profiles <- profiles %>%
+          discard(is.null)
+        suppressMessages(
+          distribution <- EmpiricalCalibration::fitNullNonNormalLl(profiles)
+        )
+      }
       tibble(databaseId = subset$databaseId[1],
              timeAtRiskId = subset$timeAtRiskId[1],
              methodId = subset$methodId[1],
@@ -288,7 +284,7 @@ computeExposureAndExpectedCounts <- function(exposureOutcomeId, simulationSettin
                 expectedEventsPerDay))
 }
 
-computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, discoverySystemSettings, cacheFolder) {
+computeCriticalValues <- function(simulation, alphaLocal, distributions, discoverySystemSettings, cacheFolder) {
   if (!is.null(cacheFolder)) {
     cacheFile <- file.path(cacheFolder, "CriticalValues.rds")
     cache <- TRUE
@@ -313,10 +309,11 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
                               function(x) return(tibble(start = x$start, end = x$end))) %>%
       list_rbind() %>%
       mutate(timeAtRiskId  = row_number())
-    valuesForUncalibratedCv <- alphaPerDatabase %>%
-      inner_join(exposureOutcomeSettings, by = "exposureOutcomeId", relationship = "many-to-many") %>%
-      inner_join(databaseSettings, by = "databaseId") %>%
-      inner_join(timeAtRiskSettings, by = "timeAtRiskId", relationship = "many-to-many") %>%
+    valuesForUncalibratedCv <- exposureOutcomeSettings %>%
+      cross_join(databaseSettings) %>%
+      cross_join(timeAtRiskSettings) %>%
+      cross_join(tibble(methodId = seq_along(simulationSettings$methodSettings))) %>%
+      cross_join(alphaLocal) %>%
       mutate(expectedEvents = .data$expectedEventsPerDay * .data$sampleSizeMultiplier * (.data$end - .data$start + 1)) %>%
       select(
         "exposureOutcomeId",
@@ -324,7 +321,7 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
         "timeAtRiskId",
         "methodId",
         "lookId",
-        "alphaPerDatabase",
+        "alphaLocal",
         "z",
         "expectedEvents"
       ) %>%
@@ -339,7 +336,7 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
           names_prefix = "look_",
           values_from = "expectedEvents")
       groups <- pivot %>%
-        select("alphaPerDatabase", "z", starts_with("look_"), "systematicErrorMean", "systematicErrorSd") %>%
+        select("alphaLocal", "z", starts_with("look_"), "systematicErrorMean", "systematicErrorSd") %>%
         distinct() %>%
         group_by(dummy = row_number()) %>%
         group_split()
@@ -348,7 +345,7 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
         list_rbind()
       cvsForUncalibratedCv <- cvsForUncalibratedCv %>%
         inner_join(pivot) %>%
-        select("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "cv", "cvAlpha", "alphaPerDatabase")
+        select("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "cv", "cvAlpha", "alphaLocal")
       criticalValues <- cvsForUncalibratedCv
     }
     if (discoverySystemSettings$useCalibratedMaxSprt) {
@@ -364,7 +361,7 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
           names_prefix = "look_",
           values_from = "expectedEvents")
       groups <- pivot %>%
-        select("alphaPerDatabase", "z", starts_with("look_"), "systematicErrorMean", "systematicErrorSd") %>%
+        select("alphaLocal", "z", starts_with("look_"), "systematicErrorMean", "systematicErrorSd") %>%
         distinct() %>%
         group_by(dummy = row_number()) %>%
         group_split()
@@ -373,12 +370,12 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
         list_rbind()
       cvsForCalibratedCv <- cvsForCalibratedCv %>%
         inner_join(pivot) %>%
-        select("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "cv", "cvAlpha", "alphaPerDatabase") %>%
+        select("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "cv", "cvAlpha", "alphaLocal") %>%
         rename(calibratedCv = "cv",
                calibratedCvAlpha = "cvAlpha")
       if (discoverySystemSettings$useMaxSprt) {
         criticalValues <- criticalValues %>%
-          inner_join(cvsForCalibratedCv, by = join_by("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "alphaPerDatabase"))
+          inner_join(cvsForCalibratedCv, by = join_by("exposureOutcomeId", "databaseId", "timeAtRiskId", "methodId", "alphaLocal"))
       } else {
         criticalValues <- cvsForCalibratedCv
       }
@@ -388,4 +385,66 @@ computeCriticalValues <- function(simulation, alphaPerDatabase, distributions, d
     }
   }
   return(criticalValues)
+}
+
+computeMetaAnlysisSignals <- function(simulation,
+                                      alphaLocal,
+                                      discoverySystemSettings,
+                                      cacheFolder) {
+  if (!is.null(cacheFolder)) {
+    cacheFile <- file.path(cacheFolder, "MetaAnalysisEstimates.rds")
+    cache <- TRUE
+  } else {
+    cache <- FALSE
+  }
+  if (cache && file.exists(cacheFile)) {
+    message("Loading meta-analysis estimates from ", cacheFile)
+    estimates <- readRDS(cacheFile)
+  } else {
+    groups <- simulation %>%
+      group_by(.data$methodId, .data$timeAtRiskId, .data$exposureOutcomeId, .data$lookId) %>%
+      group_split()
+    allProfiles <- attr(simulation, "profiles")
+    performMetaAnalysis <- function(group) {
+      profiles = allProfiles[group$profileIdx]
+      estimate <- EvidenceSynthesis::computeBayesianMetaAnalysis(profiles)
+      row <- group %>%
+        head(1) %>%
+        select("methodId", "timeAtRiskId", "exposureOutcomeId", "lookId") %>%
+        mutate(logRr = estimate$mu,
+               seLogRr = estimate$muSe,
+               p = mean(attr(estimate, "traces")[, 1] < 0))
+      return(row)
+    }
+    estimates <- lapply(groups, performMetaAnalysis)
+    estimates <- bind_rows(estimates)
+    if (cache) {
+      saveRDS(estimates, cacheFile)
+    }
+  }
+  signals <- estimates %>%
+    cross_join(alphaLocal)
+  if (discoverySystemSettings$useMetaAnalysisP) {
+    signals <- signals %>%
+      mutate(signalMetaAnalysisP = if_else(is.na(.data$p), FALSE, .data$p < .data$alphaMetaAnalysis))
+  }
+  if (discoverySystemSettings$useMetaAnalysisCalibratedP) {
+    estimates$databaseId <- 0
+    attr(estimates, "simulationSettings") <- attr(simulation, "simulationSettings")
+    distributions <- fitSystematicErrorDistributions(simulation = estimates,
+                                                     cacheFolder = NULL,
+                                                     normalApproximation = TRUE)
+    calibratedPs <- computeCalibratedPs(simulation = estimates,
+                                        distributions = distributions)
+    signals <- signals %>%
+      inner_join(
+        calibratedPs %>%
+          select("methodId", "timeAtRiskId", "exposureOutcomeId", "lookId", "calibratedP"),
+        by = join_by("methodId", "timeAtRiskId", "exposureOutcomeId", "lookId")
+      )  %>%
+      mutate(signalMetaAnalysisCalibratedP = if_else(is.na(.data$p), FALSE, .data$calibratedP < .data$alphaMetaAnalysis))
+
+  }
+  signals <- squashSignals(signals)
+  return(signals)
 }

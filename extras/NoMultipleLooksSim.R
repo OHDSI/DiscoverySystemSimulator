@@ -10,8 +10,8 @@ signalsFolder <-  file.path(folder, "Signals")
 # Simulate estimates ----------------------------------------------------
 simulationSettings <- createSimulationSettings(
   exposureOutcomeSettings = c(
-    lapply(rep(1000, 90), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
-    lapply(rep(1000, 10), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
+    lapply(rep(100, 900), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
+    lapply(rep(100, 100), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
   ),
   timeAtRiskSettings = list(
     createTimeAtRiskSettings(0, 21)
@@ -21,6 +21,12 @@ simulationSettings <- createSimulationSettings(
     createMethodSettings(0.10, 0.10)
   ),
   databaseSettings = list(
+    createDatabaseSettings(1.0),
+    createDatabaseSettings(0.5),
+    createDatabaseSettings(2.0),
+    createDatabaseSettings(1.0),
+    createDatabaseSettings(0.5),
+    createDatabaseSettings(2.0),
     createDatabaseSettings(1.0),
     createDatabaseSettings(0.5),
     createDatabaseSettings(2.0)
