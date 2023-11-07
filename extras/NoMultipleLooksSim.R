@@ -2,8 +2,8 @@
 
 library(DiscoverySystemSimulator)
 
-maxCores <- 4
-folder <- "e:/DiscoverSytemSimulations"
+maxCores <- 16
+folder <- "d:/DiscoverSytemSimulations"
 simulationsFolder <- file.path(folder, "Simulations")
 signalsFolder <-  file.path(folder, "Signals")
 
@@ -35,10 +35,10 @@ simulationSettings <- createSimulationSettings(
 runSimulationIterations(simulationsFolder = simulationsFolder,
                         simulationSettings = simulationSettings,
                         threads = maxCores,
-                        iterations = 1)
+                        iterations = 100)
 
 # Create discovery system settings --------------------------------------
-discoverySystemSettings <- createDiscoverySystemSettings(alpha = 0.5)
+discoverySystemSettings <- createDiscoverySystemSettings(alpha = c(0.05, 0.25, 0.5))
 
 # Run discovery system simulations --------------------------------------
 runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
@@ -51,3 +51,8 @@ runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
 confusionMatrices <- evaluateIterations(signalsFolder = signalsFolder)
 
 saveRDS(confusionMatrices, file.path(folder, "confusionMatrices.rds"))
+
+library(dplyr)
+x <- confusionMatrices %>%
+  group_by(label, alpha) %>%
+  summarize(mean(type1), mean(type2))
