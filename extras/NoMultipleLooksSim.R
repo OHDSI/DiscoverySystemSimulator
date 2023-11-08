@@ -10,8 +10,8 @@ signalsFolder <-  file.path(folder, "Signals")
 # Simulate estimates ----------------------------------------------------
 simulationSettings <- createSimulationSettings(
   exposureOutcomeSettings = c(
-    lapply(rep(100, 900), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
-    lapply(rep(100, 100), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
+    lapply(rep(1000, 900), createExposureOutcomeSettings, logRrMean = 0, logRrSd = 0),
+    lapply(rep(1000, 100), createExposureOutcomeSettings, logRrMean = log(2), logRrSd = 0.25)
   ),
   timeAtRiskSettings = list(
     createTimeAtRiskSettings(0, 21)
@@ -38,7 +38,10 @@ runSimulationIterations(simulationsFolder = simulationsFolder,
                         iterations = 100)
 
 # Create discovery system settings --------------------------------------
-discoverySystemSettings <- createDiscoverySystemSettings(alpha = c(0.05, 0.25, 0.5))
+discoverySystemSettings <- createDiscoverySystemSettings(
+  alpha = c(0.05, 0.25, 0.5),
+  useCalibratedMaxSprt = FALSE,
+  useMaxSprt = FALSE)
 
 # Run discovery system simulations --------------------------------------
 runDiscoverySystemIterations(simulationsFolder = simulationsFolder,
