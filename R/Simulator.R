@@ -33,10 +33,10 @@ simulateDiscoverySystem <- function(simulationSettings = createSimulationSetting
 
   message("Sampling counts")
   counts <- map(seq_along(simulationSettings$exposureOutcomeSettings),
-    simulateExposureOutcome,
-    simulationSettings = simulationSettings,
-    trueEffectSizes = trueEffectSizes,
-    systematicErrors = systematicErrors
+                simulateExposureOutcome,
+                simulationSettings = simulationSettings,
+                trueEffectSizes = trueEffectSizes,
+                systematicErrors = systematicErrors
   ) %>%
     list_rbind()
 
@@ -106,13 +106,13 @@ computeEventsPerTar <- function(n, logRr, timeAtRiskSettings, exposureOutcomeSet
   ) %>%
     mutate(atRisk = .data$start >= exposureOutcomeSettings$riskStart & .data$end <= exposureOutcomeSettings$riskEnd) %>%
     mutate(lambda = n * (.data$end - .data$start + 1) * ifelse(.data$atRisk,
-      exp(logRr) * exposureOutcomeSettings$backgroundRate,
-      exposureOutcomeSettings$backgroundRate
+                                                               exp(logRr) * exposureOutcomeSettings$backgroundRate,
+                                                               exposureOutcomeSettings$backgroundRate
     )) %>%
     mutate(events = rpois(n(), .data$lambda))
   tarEvents <- sapply(1:nrow(timeAtRiskSettings), function(i) {
     sum(intervals$events[intervals$start >= timeAtRiskSettings$start[i] &
-      intervals$end <= timeAtRiskSettings$end[i]])
+                           intervals$end <= timeAtRiskSettings$end[i]])
   })
   return(tarEvents)
 }
@@ -125,7 +125,7 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
   databaseSettings <- simulationSettings$databaseSettings[[databaseId]]
   trueEffectSize <- trueEffectSizes %>%
     filter(.data$exposureOutcomeId == !!exposureOutcomeId &
-      .data$databaseId == !!databaseId) %>%
+             .data$databaseId == !!databaseId) %>%
     pull(.data$logRr)
   nTarget <- computeNtarget(lookId = lookId,
                             nTargetFirstLook = exposureOutcomeSettings$nTargetFirstLook,
@@ -141,7 +141,7 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
   simulateMethod <- function(methodId) {
     systematicError <- systematicErrors %>%
       filter(.data$exposureOutcomeId == !!exposureOutcomeId &
-        .data$methodId == !!methodId) %>%
+               .data$methodId == !!methodId) %>%
       pull(.data$systematicError)
     # Resample comparator to simulate different choices of counterfactual. Adjusting by systematic error to simulate imperfect counterfactual:
     tibble(
@@ -174,12 +174,12 @@ simulateLook <- function(lookId, exposureOutcomeId, databaseId, simulationSettin
 
 simulateDatabase <- function(databaseId, exposureOutcomeId, simulationSettings, trueEffectSizes, systematicErrors) {
   counts <- map(1:simulationSettings$looks,
-    simulateLook,
-    exposureOutcomeId = exposureOutcomeId,
-    databaseId = databaseId,
-    simulationSettings = simulationSettings,
-    trueEffectSizes = trueEffectSizes,
-    systematicErrors = systematicErrors
+                simulateLook,
+                exposureOutcomeId = exposureOutcomeId,
+                databaseId = databaseId,
+                simulationSettings = simulationSettings,
+                trueEffectSizes = trueEffectSizes,
+                systematicErrors = systematicErrors
   ) %>%
     list_rbind()
   counts %>%
@@ -197,11 +197,11 @@ simulateDatabase <- function(databaseId, exposureOutcomeId, simulationSettings, 
 
 simulateExposureOutcome <- function(exposureOutcomeId, simulationSettings, trueEffectSizes, systematicErrors) {
   counts <- map(seq_along(simulationSettings$databaseSettings),
-    simulateDatabase,
-    exposureOutcomeId = exposureOutcomeId,
-    simulationSettings = simulationSettings,
-    trueEffectSizes = trueEffectSizes,
-    systematicErrors = systematicErrors
+                simulateDatabase,
+                exposureOutcomeId = exposureOutcomeId,
+                simulationSettings = simulationSettings,
+                trueEffectSizes = trueEffectSizes,
+                systematicErrors = systematicErrors
   ) %>%
     list_rbind()
   return(counts)
@@ -226,23 +226,25 @@ computeEstimates <- function(counts) {
     suppressWarnings(
       fit <- Cyclops::fitCyclopsModel(cyclopsData)
     )
-    logRr <- coef(fit)["x"]
-    estimates$logRr[i] <- logRr
-    ci <- confint(fit, parm = "x")
-    seLogRr <- (ci[, 3] - ci[, 2]) / (2 * qnorm(0.975))
-    estimates$seLogRr[i] <- seLogRr
-    z <- logRr / seLogRr
-    estimates$p[i] <- 1 - pnorm(z)
-    llNull <- Cyclops::getCyclopsProfileLogLikelihood(
-      object = fit,
-      parm = "x",
-      x = 0
-    )$value
-    llr <- fit$log_likelihood - llNull
-    if (logRr < 0) {
-      estimates$llr[i] <- 0
-    } else {
-      estimates$llr[i] <- llr
+    if (all(y > 0)) {
+      logRr <- coef(fit)["x"]
+      estimates$logRr[i] <- logRr
+      ci <- confint(fit, parm = "x")
+      seLogRr <- (ci[, 3] - ci[, 2]) / (2 * qnorm(0.975))
+      estimates$seLogRr[i] <- seLogRr
+      z <- logRr / seLogRr
+      estimates$p[i] <- 1 - pnorm(z)
+      llNull <- Cyclops::getCyclopsProfileLogLikelihood(
+        object = fit,
+        parm = "x",
+        x = 0
+      )$value
+      llr <- fit$log_likelihood - llNull
+      if (logRr < 0) {
+        estimates$llr[i] <- 0
+      } else {
+        estimates$llr[i] <- llr
+      }
     }
     profiles[[i]] <- Cyclops::getCyclopsProfileLogLikelihood(
       object = fit,

@@ -100,7 +100,7 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
       discoverySystemSettings$useLocalCalibratedP ||
       discoverySystemSettings$useMaxSprt ||
       discoverySystemSettings$useCalibratedMaxSprt) {
-    signalsLocal <- computeLocalSignals(simulation = simulation,
+    signalsLocal <- DiscoverySystemSimulator:::computeLocalSignals(simulation = simulation,
                                         alphaLocal = alphaLocal,
                                         discoverySystemSettings = discoverySystemSettings,
                                         cacheFolder = cacheFolder)
@@ -110,7 +110,7 @@ runDiscoverySystem <- function(simulation = simulateDiscoverySystem(),
 
   if (discoverySystemSettings$useMetaAnalysisP ||
       discoverySystemSettings$useMetaAnalysisCalibratedP) {
-    signalsMetaAnalysis <- computeMetaAnlysisSignals(simulation = simulation,
+    signalsMetaAnalysis <- DiscoverySystemSimulator:::computeMetaAnlysisSignals(simulation = simulation,
                                                      alphaLocal = alphaLocal,
                                                      discoverySystemSettings = discoverySystemSettings,
                                                      cacheFolder = cacheFolder)
@@ -237,8 +237,9 @@ fitSystematicErrorDistributions <- function(simulation, cacheFolder, normalAppro
         filter(.data$exposureOutcomeId %in% negativeControlIds)
       if (normalApproximation) {
         suppressMessages(
-          distribution <- EmpiricalCalibration::fitNull(subset$logRr, subset$seLogRr)
+          distribution <- EmpiricalCalibration::fitMcmcNull(negativeControls$logRr, negativeControls$seLogRr)
         )
+        distribution[2] <- 1/sqrt(distribution[2])
       } else {
         profiles <- attr(simulation, "profiles")[negativeControls$profileIdx]
         profiles <- profiles %>%
@@ -413,7 +414,9 @@ computeMetaAnlysisSignals <- function(simulation,
         select("methodId", "timeAtRiskId", "exposureOutcomeId", "lookId") %>%
         mutate(logRr = estimate$mu,
                seLogRr = estimate$muSe,
-               p = mean(attr(estimate, "traces")[, 1] < 0))
+               p = EmpiricalCalibration::computeTraditionalP(estimate$mu, estimate$muSe, twoSided = FALSE))
+      # Would ike to use MCMC sample to compute P, but sample too low for very small alphas:
+      # p = mean(attr(estimate, "traces")[, 1] < 0))
       return(row)
     }
     estimates <- lapply(groups, performMetaAnalysis)
